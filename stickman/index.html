@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Duel au crépuscule</title>
+<title>Feu contre Foudre</title>
 <style>
-  :root { --bg:#0b0b0d; --fg:#f2efe9; --accent:#c8961a; --red:#7a0d0d; }
+  :root { --bg:#0b0b0d; --fg:#f2efe9; --fire:#ff7a1a; --bolt:#ffd84a; }
   html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   body { display:flex; align-items:center; justify-content:center; overflow:hidden; }
@@ -16,7 +16,7 @@
     transition:opacity .4s; text-align:center; padding:16px; box-sizing:border-box; }
   #overlay.hidden { opacity:0; pointer-events:none; }
   #overlay h1 { margin:0; font-size:clamp(22px,5vw,54px); letter-spacing:.25em; font-weight:800; }
-  #overlay h1 .r { color:#a11313; } #overlay h1 .y { color:var(--accent); }
+  #overlay h1 .r { color:var(--fire); } #overlay h1 .y { color:var(--bolt); }
   #overlay button { font:inherit; font-size:clamp(14px,2.4vw,20px); padding:.7em 1.6em; border-radius:999px;
     border:2px solid var(--fg); background:transparent; color:var(--fg); cursor:pointer; letter-spacing:.1em; }
   #overlay p { margin:0; opacity:.7; font-size:clamp(11px,1.6vw,14px); }
@@ -26,7 +26,7 @@
 <div id="wrap">
   <canvas id="c" width="1280" height="720"></canvas>
   <div id="overlay">
-    <h1><span class="r">ROUGE</span> ✕ <span class="y">JAUNE</span></h1>
+    <h1><span class="r">FEU</span> ✕ <span class="y">FOUDRE</span></h1>
     <button id="play">▶ LANCER (avec le son)</button>
     <p>Touchez l'écran pendant l'animation pour passer en plein écran</p>
   </div>
@@ -34,16 +34,15 @@
 <script>
 'use strict';
 // ============================================================
-//  Duel au crépuscule — animation stickman 100 % code (canvas)
-//  Tout est dessiné à la main en JS : décor, personnages, katanas,
-//  effets et sons (WebAudio). Aucune image externe.
+//  Feu contre Foudre — animation stickman 100 % code (canvas)
+//  Rouge = pouvoir du feu, Jaune = pouvoir de la foudre.
+//  Décor, personnages, katanas, effets et sons sont générés en JS.
 // ============================================================
 const W = 1280, H = 720;
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 const D2R = Math.PI / 180;
-const END = 22.5;               // durée totale (temps d'animation)
-const params = new URLSearchParams(location.search);
+const END = 27.5;
 
 // ---------- utilitaires ----------
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -55,16 +54,14 @@ const EASE = {
   in: k => k * k * k,
   step: k => k < 1 ? 0 : 1,
 };
-// RNG déterministe (pour que la vidéo exportée soit identique)
 let seed = 12345;
 function rnd() { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }
 const rr = (a, b) => a + rnd() * (b - a);
+const fade = (t, a, b, c, d) => t < a ? 0 : t < b ? (t - a) / (b - a) : t < c ? 1 : t < d ? 1 - (t - c) / (d - c) : 0;
 
-// ---------- squelette ----------
-const L = { torso: 62, neck: 26, ua: 34, fa: 32, th: 42, sh: 42, head: 25, blade: 98, handle: 24 };
-
-// Angles en degrés. Membres : 0 = vers le bas, + = vers l'avant.
-// Torse : 0 = droit, + = penché en avant. Sabre : 0 = vers le haut, 90 = devant.
+// ---------- squelette & poses ----------
+const L = { torso: 62, neck: 26, ua: 34, fa: 32, th: 42, sh: 42, head: 25, guard: 8, blade: 100, tip: 108 };
+// Membres : 0 = vers le bas, + = vers l'avant. Torse : + = penché en avant. Sabre : 0 = haut, 90 = devant.
 const P = {
   idle:      { t:4,  hd:4,   fa1:8,   fa2:14,  ba1:-8,  ba2:-4,  fl1:10, fl2:2,  bl1:-10, bl2:-16, s:-110, d:0 },
   hilt:      { t:18, hd:10,  fa1:28,  fa2:-25, ba1:10,  ba2:-15, fl1:38, fl2:8,  bl1:-32, bl2:-45, s:-110, d:0 },
@@ -88,134 +85,169 @@ const P = {
   standAfter:{ t:8,  hd:-5,  fa1:60,  fa2:90,  ba1:-10, ba2:-5,  fl1:14, fl2:2,  bl1:-14, bl2:-20, s:140, d:1 },
   kneel:     { t:35, hd:35,  fa1:90,  fa2:30,  ba1:10,  ba2:0,   fl1:90, fl2:0,  bl1:5,   bl2:-90, s:175, d:1 },
   slump:     { t:55, hd:55,  fa1:95,  fa2:35,  ba1:5,   ba2:5,   fl1:90, fl2:0,  bl1:5,   bl2:-90, s:175, d:1 },
+  // marche procédurale : la phase dépend de la position => les pieds ne glissent pas
+  walk: (x, face) => {
+    const ph = x * face * 2 * Math.PI / 108, s = Math.sin(ph), c = Math.cos(ph);
+    return { t:6, hd:3, fl1:22*s, fl2:22*s - 34*Math.max(0, c), bl1:-22*s, bl2:-22*s - 34*Math.max(0, -c),
+      fa1:-12*s + 6, fa2:-12*s + 18, ba1:12*s - 6, ba2:12*s + 6, s:-110, d:0 };
+  },
 };
 const KEYS = ['t','hd','fa1','fa2','ba1','ba2','fl1','fl2','bl1','bl2','s'];
 
 // ---------- chorégraphie ----------
-// [temps, x, pose, easing, saut]
+// [temps, x, pose, {e: easing forcé, j: saut, h: pause (vitesse nulle)}]
+// Sans easing forcé, tout est interpolé par splines (Catmull-Rom) => mouvements continus.
 const RED = [
-  [0,-300,'idle'],[5.0,-300,'idle'],[5.6,-300,'hilt'],[7.0,-300,'hilt'],
-  [7.12,-300,'draw','out'],[7.5,-300,'ready'],[7.65,-290,'ready'],
-  [7.8,-262,'dashA','lin'],[7.95,-220,'dashB','lin'],[8.1,-178,'dashA','lin'],[8.25,-138,'dashB','lin'],
-  [8.4,-110,'clash','out'],[8.7,-104,'clash'],[9.0,-112,'clash'],
-  [9.15,-150,'ready','out'],[9.35,-150,'overhead'],[9.55,-105,'downslash','in'],[9.75,-110,'downslash'],
-  [9.95,-112,'ready'],[10.12,-180,'jumpBack','out',55],[10.3,-230,'ready','in'],
-  [10.55,-230,'ready'],[10.75,-115,'thrust','in'],[10.85,-118,'thrust'],[11.0,-120,'ready'],
-  [11.1,-122,'blockHigh','out'],[11.25,-128,'blockHigh'],
-  [11.45,-135,'windSide'],[11.62,-100,'followSide','in'],[11.8,-112,'ready'],
-  [12.1,-200,'jumpBack','out',80],[12.4,-300,'ready','in'],
-  [13.0,-300,'ready'],[13.5,-300,'sheathe'],[14.0,-300,'iai'],[15.0,-300,'iai'],
-  [15.12,-150,'crossDash','lin'],[15.32,150,'crossDash','lin'],[15.5,270,'after','out'],
-  [17.5,270,'after'],[17.95,270,'kneel','in'],[19.2,270,'kneel'],[20.2,270,'slump'],
+  [0,-560,'walk'],[4.6,-322,'walk'],[5.3,-300,'idle',{h:1}],[6.3,-300,'idle',{h:1}],[6.9,-300,'hilt',{h:1}],[8.3,-300,'hilt',{h:1}],
+  [8.42,-300,'draw',{e:'out'}],[8.9,-300,'ready',{h:1}],
+  [9.05,-292,'ready'],[9.2,-262,'dashA'],[9.35,-220,'dashB'],[9.5,-178,'dashA'],[9.65,-138,'dashB'],[9.8,-110,'clash',{e:'out'}],
+  [10.1,-104,'clash'],[10.4,-112,'clash'],
+  [10.6,-150,'ready'],[10.85,-152,'overhead',{h:1}],[11.05,-105,'downslash',{e:'in'}],[11.25,-110,'downslash'],[11.45,-115,'ready'],
+  [11.6,-170,'jumpBack',{j:55}],[11.8,-230,'ready',{e:'in'}],[12.0,-232,'ready',{h:1}],
+  [12.2,-115,'thrust',{e:'in'}],[12.32,-118,'thrust'],[12.5,-120,'ready'],[12.6,-122,'blockHigh',{e:'out'}],[12.75,-128,'blockHigh'],
+  [12.95,-135,'windSide'],[13.12,-100,'followSide',{e:'in'}],[13.3,-112,'ready'],
+  [13.6,-200,'jumpBack',{j:80}],[13.9,-320,'ready',{e:'in'}],
+  [14.2,-320,'windSide',{h:1}],[14.38,-300,'followSide',{e:'in'}],[14.65,-305,'ready'],
+  [14.9,-310,'blockHigh',{e:'out'}],[15.15,-330,'blockHigh'],[15.35,-325,'ready'],
+  [15.48,-330,'windSide'],[15.65,-290,'followSide',{e:'in'}],[15.95,-300,'ready'],[16.6,-300,'ready',{h:1}],
+  [17.0,-300,'ready',{h:1}],[17.5,-300,'sheathe',{h:1}],[18.0,-300,'iai',{h:1}],[19.6,-300,'iai',{h:1}],
+  [19.72,-150,'crossDash',{e:'lin'}],[19.92,150,'crossDash',{e:'lin'}],[20.1,270,'after',{e:'out'}],
+  [22.1,270,'after',{h:1}],[22.55,270,'kneel',{e:'in'}],[23.8,270,'kneel',{h:1}],[24.8,270,'slump',{h:1}],
 ];
 const YEL = [
-  [0,300,'idle'],[5.4,300,'idle'],[6.0,300,'hilt'],[7.0,300,'hilt'],
-  [7.12,300,'draw','out'],[7.5,300,'ready'],[7.65,290,'ready'],
-  [7.8,262,'dashB','lin'],[7.95,220,'dashA','lin'],[8.1,178,'dashB','lin'],[8.25,138,'dashA','lin'],
-  [8.4,110,'clash','out'],[8.7,116,'clash'],[9.0,108,'clash'],
-  [9.15,150,'ready','out'],[9.3,150,'ready'],[9.45,140,'blockHigh','out'],[9.6,132,'blockHigh'],
-  [9.75,130,'ready'],[9.95,128,'windSide'],[10.15,60,'followSide','in'],[10.4,90,'ready'],
-  [10.55,120,'ready'],[10.7,125,'blockLow','out'],[10.8,135,'blockLow'],
-  [11.0,120,'overhead'],[11.2,78,'downslash','in'],[11.3,85,'downslash'],
-  [11.45,135,'windSide'],[11.62,100,'followSide','in'],[11.8,112,'ready'],
-  [12.1,200,'jumpBack','out',80],[12.4,300,'ready','in'],
-  [13.0,300,'ready'],[13.5,300,'sheathe'],[14.0,300,'iai'],[15.0,300,'iai'],
-  [15.12,150,'crossDash','lin'],[15.32,-150,'crossDash','lin'],[15.5,-270,'after','out'],
-  [17.5,-270,'after'],[18.3,-270,'standAfter'],[18.6,-270,'standAfter'],
-  [19.0,-270,'sheathe'],[19.8,-270,'idle'],
+  [0,560,'walk'],[4.8,322,'walk'],[5.5,300,'idle',{h:1}],[6.9,300,'idle',{h:1}],[7.5,300,'hilt',{h:1}],[8.3,300,'hilt',{h:1}],
+  [8.42,300,'draw',{e:'out'}],[8.9,300,'ready',{h:1}],
+  [9.05,292,'ready'],[9.2,262,'dashB'],[9.35,220,'dashA'],[9.5,178,'dashB'],[9.65,138,'dashA'],[9.8,110,'clash',{e:'out'}],
+  [10.1,116,'clash'],[10.4,108,'clash'],
+  [10.6,150,'ready'],[10.8,150,'ready'],[10.95,140,'blockHigh',{e:'out'}],[11.1,132,'blockHigh'],[11.3,130,'ready'],
+  [11.45,128,'windSide'],[11.65,60,'followSide',{e:'in'}],[11.9,90,'ready'],[12.05,120,'ready'],
+  [12.18,125,'blockLow',{e:'out'}],[12.3,135,'blockLow'],[12.5,120,'overhead'],[12.68,78,'downslash',{e:'in'}],[12.8,85,'downslash'],
+  [12.95,135,'windSide'],[13.12,100,'followSide',{e:'in'}],[13.3,112,'ready'],
+  [13.6,200,'jumpBack',{j:80}],[13.9,320,'ready',{e:'in'}],[14.3,320,'ready',{h:1}],[14.7,320,'ready',{h:1}],
+  // téléportation éclair : disparaît, réapparaît au-dessus du rouge
+  [14.82,-250,'overhead',{e:'step',j:170}],[15.1,-205,'downslash',{e:'in'}],[15.3,-200,'downslash'],[15.48,-195,'ready'],
+  [15.6,-190,'blockLow',{e:'out'}],[15.8,-110,'jumpBack',{j:60}],[15.95,-80,'ready',{e:'in'}],[16.0,-80,'ready',{h:1}],
+  [16.15,300,'ready',{e:'step'}],[17.0,300,'ready',{h:1}],[17.5,300,'sheathe',{h:1}],[18.0,300,'iai',{h:1}],[19.6,300,'iai',{h:1}],
+  [19.72,150,'crossDash',{e:'lin'}],[19.92,-150,'crossDash',{e:'lin'}],[20.1,-270,'after',{e:'out'}],
+  [22.1,-270,'after',{h:1}],[22.9,-270,'standAfter'],[23.2,-270,'standAfter',{h:1}],[23.6,-270,'sheathe'],[24.4,-270,'idle',{h:1}],
 ];
+function prep(track, face, hide) {
+  const k = track.map(([t, x, p, o]) => ({ t, x, p, e: o && o.e, j: (o && o.j) || 0, h: o && o.h }));
+  k.face = face; k.hide = hide || []; return k;
+}
+const RT = prep(RED, 1), YT = prep(YEL, -1, [[14.7, 14.82], [16.0, 16.15]]);
+const hidden = (tr, t) => tr.hide.some(([a, b]) => t >= a && t < b);
 
-function poseAt(track, t) {
-  let i = 0;
-  while (i < track.length - 2 && track[i + 1][0] <= t) i++;
-  const a = track[i], b = track[i + 1] || a;
-  const span = b[0] - a[0];
-  let k = span > 0 ? clamp((t - a[0]) / span, 0, 1) : 1;
-  k = EASE[b[3] || 'io'](k);
-  const pa = P[a[2]], pb = P[b[2]], o = {};
-  for (const key of KEYS) o[key] = lerp(pa[key], pb[key], k);
-  o.d = k < .5 ? pa.d : pb.d;
-  o.x = lerp(a[1], b[1], k);
-  // saut : arc en cloche entre les deux images clés
-  o.j = lerp(a[4] || 0, b[4] || 0, k);
+function resolvePose(name, x, face) { const p = P[name]; return typeof p === 'function' ? p(x, face) : p; }
+function poseAt(K, t) {
+  const n = K.length;
+  if (t <= K[0].t) t = K[0].t;
+  let i = 0; while (i < n - 2 && K[i + 1].t <= t) i++;
+  const a = K[i], b = K[i + 1] || a, dt = b.t - a.t || 1;
+  const s = clamp((t - a.t) / dt, 0, 1);
+  const o = {};
+  const fnSeg = typeof P[a.p] === 'function' || typeof P[b.p] === 'function';
+  if (b.e || fnSeg) {
+    const k = EASE[b.e || 'io'](s);
+    o.x = lerp(a.x, b.x, b.e ? k : s); o.j = lerp(a.j, b.j, k);
+    const pa = resolvePose(a.p, o.x, K.face), pb = resolvePose(b.p, o.x, K.face);
+    for (const key of KEYS) o[key] = lerp(pa[key], pb[key], k);
+    o.d = k < .5 ? pa.d : pb.d;
+    return o;
+  }
+  // spline d'Hermite (tangentes Catmull-Rom non uniformes)
+  const val = (j, key) => key === 'x' ? K[j].x : key === 'j' ? K[j].j : resolvePose(K[j].p, K[j].x, K.face)[key];
+  const tan = (j, key) => {
+    if (K[j].h || j === 0 || j === n - 1) return 0;
+    if (K[j].e === 'step' || (K[j + 1] && K[j + 1].e === 'step')) return 0;
+    return .85 * (val(j + 1, key) - val(j - 1, key)) / (K[j + 1].t - K[j - 1].t);
+  };
+  const s2 = s * s, s3 = s2 * s;
+  const h00 = 2 * s3 - 3 * s2 + 1, h10 = s3 - 2 * s2 + s, h01 = -2 * s3 + 3 * s2, h11 = s3 - s2;
+  for (const key of [...KEYS, 'x', 'j'])
+    o[key] = h00 * val(i, key) + h10 * dt * tan(i, key) + h01 * val(i + 1, key) + h11 * dt * tan(i + 1, key);
+  o.j = Math.max(0, o.j);
+  o.d = s < .5 ? P[a.p].d : P[b.p].d;
   return o;
+}
+// petite inertie : la tête et le bras arrière suivent avec un léger retard
+function livePose(K, t, ph) {
+  const p = poseAt(K, t), q0 = poseAt(K, t - .06), q = Math.abs(q0.x - p.x) > 120 ? p : q0;
+  p.hd += (q.t - p.t) * .5;
+  p.ba1 = lerp(p.ba1, q.ba1, .45); p.ba2 = lerp(p.ba2, q.ba2, .55);
+  p.t += Math.sin(t * 2.1 + ph) * 1.3; p.fa1 += Math.sin(t * 2.1 + ph + 1) * 1.4;
+  return p;
 }
 
 // ---------- caméra ----------
-// [temps, x, y, zoom, easing]
 const CAM = [
-  [0,-520,-150,1.05],[4.6,-40,-115,1.0],
-  [5.0,-280,-85,2.4,'step'],[5.6,-280,-85,2.6,'lin'],
-  [5.6,280,-85,2.4,'step'],[6.2,280,-85,2.6,'lin'],
-  [6.2,0,-115,1.12,'step'],[7.6,0,-115,1.22,'lin'],
-  [8.4,0,-130,1.7,'io'],[11.9,0,-130,1.6,'lin'],
-  [12.5,0,-115,1.15,'out'],[15.0,0,-110,1.35,'lin'],
-  [15.3,0,-110,1.0,'out'],[17.5,0,-110,1.12,'lin'],
-  [17.5,240,-95,1.9,'step'],[18.4,250,-90,2.05,'lin'],
-  [18.4,-250,-95,1.9,'step'],[19.6,-250,-95,2.0,'lin'],
-  [19.6,0,-110,1.05,'step'],[22.5,0,-120,1.15,'lin'],
+  [0,-560,-150,1.05],[4.8,-40,-115,1.0],
+  [6.3,-290,-85,2.4,'step'],[6.95,-290,-85,2.6,'lin'],
+  [6.95,290,-85,2.4,'step'],[7.55,290,-85,2.6,'lin'],
+  [7.55,0,-115,1.12,'step'],[9.0,0,-115,1.22,'lin'],
+  [9.8,0,-130,1.7,'io'],[13.3,0,-130,1.6,'lin'],
+  [13.9,0,-115,1.15,'out'],[14.6,40,-120,1.15,'io'],
+  [14.85,-210,-160,1.45,'out'],[15.4,-240,-140,1.6,'io'],[16.0,-180,-120,1.3,'io'],
+  [16.4,0,-115,1.12,'io'],[19.6,0,-110,1.35,'lin'],
+  [19.9,0,-110,1.0,'out'],[22.1,0,-110,1.12,'lin'],
+  [22.1,240,-95,1.9,'step'],[23.0,250,-90,2.05,'lin'],
+  [23.0,-250,-95,1.9,'step'],[24.3,-250,-95,2.0,'lin'],
+  [24.3,0,-110,1.05,'step'],[27.5,0,-120,1.15,'lin'],
 ];
 function camAt(t) {
-  let i = 0;
-  while (i < CAM.length - 2 && CAM[i + 1][0] <= t) i++;
-  const a = CAM[i], b = CAM[i + 1] || a;
-  const span = b[0] - a[0];
-  let k = span > 0 ? clamp((t - a[0]) / span, 0, 1) : 1;
-  k = EASE[b[4] || 'io'](k);
+  let i = 0; while (i < CAM.length - 2 && CAM[i + 1][0] <= t) i++;
+  const a = CAM[i], b = CAM[i + 1] || a, span = b[0] - a[0];
+  const k = EASE[b[4] || 'io'](span > 0 ? clamp((t - a[0]) / span, 0, 1) : 1);
   return { x: lerp(a[1], b[1], k), y: lerp(a[2], b[2], k), z: lerp(a[3], b[3], k) };
 }
 
-// ralentis : [début, fin, vitesse]
-const SLOWMO = [[8.36, 8.62, .3], [15.08, 15.38, .22], [17.55, 17.75, .5]];
+// ralentis [début, fin, vitesse]
+const SLOWMO = [[9.76, 10.02, .3], [14.98, 15.16, .35], [19.68, 19.98, .2], [22.05, 22.25, .5]];
 const speedAt = t => { for (const s of SLOWMO) if (t >= s[0] && t < s[1]) return s[2]; return 1; };
+// temps réel correspondant à un temps d'animation (pour le son)
+const REAL = (() => { const arr = []; let a = 0, r = 0; const d = 1 / 600; while (a <= END + 1) { arr.push([a, r]); a += d * speedAt(a); r += d; } return arr; })();
+function realOf(anim) { let lo = 0, hi = REAL.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (REAL[m][0] <= anim) lo = m; else hi = m; } return REAL[lo][1]; }
 
-// ---------- géométrie du personnage ----------
-const V = a => [Math.sin(a * D2R), Math.cos(a * D2R)];          // membre (0 = bas)
-const U = a => [Math.sin(a * D2R), -Math.cos(a * D2R)];         // torse / sabre (0 = haut)
+// ---------- géométrie ----------
+const V = a => [Math.sin(a * D2R), Math.cos(a * D2R)];
+const U = a => [Math.sin(a * D2R), -Math.cos(a * D2R)];
 function skeleton(p, face) {
   const legDepth = (a, b) => L.th * Math.cos(a * D2R) + L.sh * Math.cos(b * D2R);
   const hipY = -Math.max(legDepth(p.fl1, p.fl2), legDepth(p.bl1, p.bl2)) - p.j;
-  const w = (lx, ly) => [p.x + face * lx, ly];
+  const w = (v) => [p.x + face * v[0], v[1]];
   const add = (pt, v, len) => [pt[0] + v[0] * len, pt[1] + v[1] * len];
-  const hipL = [0, hipY];
-  const tv = U(p.t);
-  const neckL = add(hipL, tv, L.torso);
-  const headL = add(neckL, U(p.t + p.hd), L.neck);
-  const shL = add(neckL, tv, -6);
-  const fe = add(shL, V(p.fa1), L.ua), fh = add(fe, V(p.fa2), L.fa);
-  const be = add(shL, V(p.ba1), L.ua), bh = add(be, V(p.ba2), L.fa);
-  const fk = add(hipL, V(p.fl1), L.th), ff = add(fk, V(p.fl2), L.sh);
-  const bk = add(hipL, V(p.bl1), L.th), bf = add(bk, V(p.bl2), L.sh);
-  const sv = U(p.s);
-  const hiltL = p.d ? fh : add(hipL, [1, 0], 16);
-  const svDir = p.d ? sv : U(-110);
-  const tipL = add(hiltL, svDir, L.blade);
+  const hip = [0, hipY], tv = U(p.t);
+  const neck = add(hip, tv, L.torso), head = add(neck, U(p.t + p.hd), L.neck), sh = add(neck, tv, -6);
+  const fe = add(sh, V(p.fa1), L.ua), fh = add(fe, V(p.fa2), L.fa);
+  const be = add(sh, V(p.ba1), L.ua), bh = add(be, V(p.ba2), L.fa);
+  const fk = add(hip, V(p.fl1), L.th), ff = add(fk, V(p.fl2), L.sh);
+  const bk = add(hip, V(p.bl1), L.th), bf = add(bk, V(p.bl2), L.sh);
+  const scab = add(hip, [1, 0], 16), scabDir = U(-110);
+  const dir = p.d ? U(p.s) : scabDir, hilt = p.d ? fh : scab;
   const r = {};
-  for (const [k, v] of Object.entries({ hip: hipL, neck: neckL, head: headL, sh: shL, fe, fh, be, bh, fk, ff, bk, bf, hilt: hiltL, tip: tipL }))
-    r[k] = w(v[0], v[1]);
-  r.sdir = [face * svDir[0], svDir[1]];
-  r.scab = w(...add(hipL, [1, 0], 16)); r.scabDir = [face * U(-110)[0], U(-110)[1]];
+  for (const [k, v] of Object.entries({ hip, neck, head, sh, fe, fh, be, bh, fk, ff, bk, bf, hilt, scab, tip: add(hilt, dir, L.tip) })) r[k] = w(v);
+  r.dir = [face * dir[0], dir[1]]; r.scabDir = [face * scabDir[0], scabDir[1]];
   r.drawn = p.d; r.face = face;
+  r.bones = [[r.hip, r.neck], [r.sh, r.fe], [r.fe, r.fh], [r.sh, r.be], [r.be, r.bh], [r.hip, r.fk], [r.fk, r.ff], [r.hip, r.bk], [r.bk, r.bf]];
   return r;
 }
+const onBlade = (s, u) => [lerp(s.hilt[0] + s.dir[0] * L.guard, s.tip[0], u), lerp(s.hilt[1] + s.dir[1] * L.guard, s.tip[1], u)];
+const onBody = s => { const b = s.bones[(rnd() * s.bones.length) | 0], u = rnd(); return [lerp(b[0][0], b[1][0], u), lerp(b[0][1], b[1][1], u)]; };
 
 // ---------- décor (pré-rendu) ----------
 function makeLayer(w, h, fn) { const c = document.createElement('canvas'); c.width = w; c.height = h; fn(c.getContext('2d'), w, h); return c; }
-const HORIZON = 400; // y écran de l'horizon dans les calques
+const HORIZON = 400;
 const sky = makeLayer(W * 2, H, (g, w, h) => {
   const gr = g.createLinearGradient(0, 0, 0, HORIZON + 40);
-  gr.addColorStop(0, '#1b1a21'); gr.addColorStop(.55, '#3a3640'); gr.addColorStop(1, '#7a6a70');
+  gr.addColorStop(0, '#17161d'); gr.addColorStop(.55, '#36323d'); gr.addColorStop(1, '#7a6a70');
   g.fillStyle = gr; g.fillRect(0, 0, w, h);
-  // lueur du soleil couchant derrière les nuages
   const sun = g.createRadialGradient(w * .55, HORIZON - 30, 10, w * .55, HORIZON - 30, 520);
-  sun.addColorStop(0, 'rgba(235,160,120,.45)'); sun.addColorStop(.4, 'rgba(180,110,100,.18)'); sun.addColorStop(1, 'rgba(0,0,0,0)');
+  sun.addColorStop(0, 'rgba(235,150,110,.45)'); sun.addColorStop(.4, 'rgba(180,100,100,.18)'); sun.addColorStop(1, 'rgba(0,0,0,0)');
   g.fillStyle = sun; g.fillRect(0, 0, w, h);
-  // nuages
   g.filter = 'blur(18px)';
   for (let i = 0; i < 140; i++) {
-    const y = rr(-40, HORIZON - 40), x = rr(-100, w + 100);
-    const dark = 1 - y / HORIZON;
-    g.fillStyle = `rgba(${lerp(120, 25, dark) | 0},${lerp(108, 24, dark) | 0},${lerp(115, 30, dark) | 0},${rr(.25, .55)})`;
+    const y = rr(-40, HORIZON - 40), x = rr(-100, w + 100), dark = 1 - y / HORIZON;
+    g.fillStyle = `rgba(${lerp(120, 22, dark) | 0},${lerp(108, 21, dark) | 0},${lerp(115, 28, dark) | 0},${rr(.25, .55)})`;
     g.beginPath(); g.ellipse(x, y, rr(80, 260), rr(18, 55), 0, 0, Math.PI * 2); g.fill();
   }
   g.filter = 'none';
@@ -226,7 +258,6 @@ function ridge(g, w, base, amp, rough, color, blur, step) {
   let y = base;
   for (let x = 0; x <= w; x += step) {
     y += rr(-rough, rough); y = clamp(y, base - amp, base + 6);
-    // mesas : plateaux occasionnels
     if (rnd() < .06) { const top = base - rr(amp * .5, amp); g.lineTo(x, top); x += rr(40, 120); g.lineTo(x, top + rr(-4, 4)); y = top; }
     g.lineTo(x, y);
   }
@@ -235,7 +266,6 @@ function ridge(g, w, base, amp, rough, color, blur, step) {
 const far = makeLayer(W * 3, H, (g, w) => ridge(g, w, HORIZON, 70, 9, '#5a5058', 3, 14));
 const mid = makeLayer(W * 3, H, (g, w) => {
   ridge(g, w, HORIZON + 8, 55, 12, '#463d42', 1.5, 10);
-  // brume au pied des rochers
   const fog = g.createLinearGradient(0, HORIZON - 30, 0, HORIZON + 20);
   fog.addColorStop(0, 'rgba(120,100,105,0)'); fog.addColorStop(1, 'rgba(120,100,105,.55)');
   g.fillStyle = fog; g.fillRect(0, HORIZON - 30, w, 50);
@@ -245,74 +275,150 @@ const ground = makeLayer(W * 3, H, (g, w, h) => {
   gr.addColorStop(0, '#6d5e62'); gr.addColorStop(.25, '#6f5b55'); gr.addColorStop(1, '#3b2f2e');
   g.fillStyle = gr; g.fillRect(0, HORIZON, w, h - HORIZON);
   for (let i = 0; i < 900; i++) {
-    const y = HORIZON + Math.pow(rnd(), 1.6) * (h - HORIZON);
-    const k = (y - HORIZON) / (h - HORIZON);
+    const y = HORIZON + Math.pow(rnd(), 1.6) * (h - HORIZON), k = (y - HORIZON) / (h - HORIZON);
     g.fillStyle = `rgba(${rnd() < .5 ? '30,22,22' : '150,125,120'},${rr(.05, .14)})`;
     g.fillRect(rr(0, w), y, rr(20, 160) * (k + .2), 1 + k * 3);
   }
 });
+// sprites lumineux (feu, étincelles)
+function glowSprite(r, g, b) {
+  return makeLayer(64, 64, (c) => { const gr = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gr.addColorStop(0, `rgba(${r},${g},${b},1)`); gr.addColorStop(.35, `rgba(${r},${g},${b},.55)`); gr.addColorStop(1, `rgba(${r},${g},${b},0)`);
+    c.fillStyle = gr; c.fillRect(0, 0, 64, 64); });
+}
+const SPR = { white: glowSprite(255, 248, 225), yellow: glowSprite(255, 205, 90), orange: glowSprite(255, 120, 30), red: glowSprite(200, 40, 10), bolt: glowSprite(255, 225, 110) };
+
+// ---------- caméra / écran ----------
+let cam = { x: 0, y: 0, z: 1 }, shakeX = 0, shakeY = 0;
+const toS = (p) => [(p[0] - cam.x) * cam.z + W / 2 + shakeX, (p[1] - cam.y) * cam.z + H * .62 + shakeY];
 
 // ---------- particules ----------
 let parts = [];
-function spark(x, y, n, power) {
-  for (let i = 0; i < n; i++) {
-    const a = rr(0, Math.PI * 2), v = rr(150, 700) * power;
-    parts.push({ k: 'spark', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 120, life: rr(.25, .6), age: 0 });
-  }
-}
-function dust(x, n, dir) {
-  for (let i = 0; i < n; i++)
-    parts.push({ k: 'dust', x: x + rr(-20, 20), y: rr(-12, 0), vx: rr(-60, 60) + dir * rr(40, 160), vy: rr(-50, -10), r: rr(8, 20), life: rr(.6, 1.2), age: 0 });
-}
+const MAXP = 1400;
+function add(p) { if (parts.length < MAXP) parts.push(p); }
+function fire(x, y, vx, vy, r, life) { add({ k: 'fire', x, y, vx, vy, r, life, age: 0 }); }
+function fireBurst(x, y, n, pw) { for (let i = 0; i < n; i++) { const a = rr(0, 6.28), v = rr(80, 520) * pw; fire(x, y, Math.cos(a) * v, Math.sin(a) * v - 80, rr(10, 22) * pw, rr(.3, .7)); } }
+function sparks(x, y, n, pw) { for (let i = 0; i < n; i++) { const a = rr(0, 6.28), v = rr(150, 700) * pw; add({ k: 'spark', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 120, life: rr(.25, .6), age: 0 }); } }
+function esparks(x, y, n, pw) { for (let i = 0; i < n; i++) { const a = rr(0, 6.28), v = rr(200, 900) * pw; add({ k: 'espark', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: rr(.1, .3), age: 0 }); } }
+function smoke(x, y, n) { for (let i = 0; i < n; i++) add({ k: 'smoke', x: x + rr(-8, 8), y: y + rr(-8, 8), vx: rr(-20, 30), vy: rr(-70, -30), r: rr(6, 12), life: rr(1, 2), age: 0 }); }
+function dust(x, n, dir) { for (let i = 0; i < n; i++) add({ k: 'dust', x: x + rr(-20, 20), y: rr(-12, 0), vx: rr(-60, 60) + dir * rr(40, 160), vy: rr(-50, -10), r: rr(8, 20), life: rr(.6, 1.2), age: 0 }); }
+function ember(x, y) { add({ k: 'ember', x, y, vx: rr(-20, 40), vy: rr(-90, -30), life: rr(.8, 1.8), age: 0, ph: rr(0, 6) }); }
 const ambient = [];
 for (let i = 0; i < 70; i++) ambient.push({ x: rr(-900, 900), y: rr(-420, 0), s: rr(.4, 1.6), ph: rr(0, 6.28), leaf: rnd() < .35 });
 
-// ---------- évènements (sons + effets) ----------
-let fx = { flash: 0, flashCol: '255,255,255', shake: 0, lines: [] };
+// ---------- éclairs ----------
+function jag(a, b, disp, levels = 6) {
+  let pts = [a, b];
+  for (let l = 0; l < levels; l++) {
+    const np = [pts[0]];
+    for (let i = 1; i < pts.length; i++) {
+      const p = pts[i - 1], q = pts[i], dx = q[0] - p[0], dy = q[1] - p[1], len = Math.hypot(dx, dy) || 1;
+      const o = rr(-disp, disp);
+      np.push([(p[0] + q[0]) / 2 - dy / len * o, (p[1] + q[1]) / 2 + dx / len * o], q);
+    }
+    pts = np; disp *= .55;
+  }
+  return pts;
+}
+function mkBolt(a, b, disp) {
+  const main = jag(a, b, disp), lines = [main];
+  for (let i = 0; i < 4; i++) {
+    const p = main[(rr(.15, .8) * main.length) | 0], dx = b[0] - a[0], dy = b[1] - a[1], ang = Math.atan2(dy, dx) + rr(-.9, .9), len = Math.hypot(dx, dy) * rr(.12, .3);
+    lines.push(jag(p, [p[0] + Math.cos(ang) * len, p[1] + Math.sin(ang) * len], disp * .3, 4));
+  }
+  return lines;
+}
+function strokeBolt(pts, a, w, rgb = '255,215,90') {
+  const z = cam.z, s = pts.map(toS);
+  const path = () => { ctx.beginPath(); ctx.moveTo(...s[0]); for (let i = 1; i < s.length; i++) ctx.lineTo(...s[i]); };
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  path(); ctx.strokeStyle = `rgba(${rgb},${.16 * a})`; ctx.lineWidth = w * 5 * z; ctx.stroke();
+  path(); ctx.strokeStyle = `rgba(${rgb},${.5 * a})`; ctx.lineWidth = w * 2 * z; ctx.stroke();
+  path(); ctx.strokeStyle = `rgba(255,255,245,${a})`; ctx.lineWidth = Math.max(1, w * .7 * z); ctx.stroke();
+}
+
+// ---------- effets globaux ----------
+let fx;
+function resetFx() { fx = { flash: 0, flashCol: '255,255,255', shake: 0, lines: [], bolts: [], bg: [], skyFlash: 0, waves: [], rings: [] }; }
+resetFx();
 const bladeMid = s => [(s.hilt[0] + s.tip[0]) / 2, (s.hilt[1] + s.tip[1]) / 2];
 function clashPoint(t) {
-  const a = bladeMid(skeleton(poseAt(RED, t), 1)), b = bladeMid(skeleton(poseAt(YEL, t), -1));
+  const a = bladeMid(skeleton(poseAt(RT, t), 1)), b = bladeMid(skeleton(poseAt(YT, t), -1));
   return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
 }
+function boltFx(a, b, disp, life, w) { fx.bolts.push({ lines: mkBolt(a, b, disp), a, b, disp, age: 0, life, w }); }
+
 const EVENTS = [
   [0.0, 'windStart'],
-  [6.65, 'eye'],
-  [7.06, 'draw'],
-  [7.65, 'dash'],
-  [8.4, 'clash', 1.3], [8.62, 'grind'], [9.55, 'clash', .9], [10.12, 'swish'],
-  [10.75, 'clash', .8], [11.2, 'clash', .9], [11.62, 'clash', 1.2],
-  [12.1, 'swish'], [12.4, 'land'],
-  [13.42, 'click'], [14.05, 'beat'], [14.55, 'beat'], [14.9, 'beat'],
-  [15.0, 'dash2'], [15.22, 'cross'],
-  [17.62, 'cut'], [17.95, 'thud'], [18.95, 'click'], [20.25, 'thud'],
+  [6.5, 'emberHint'], [7.1, 'zapHint'],
+  [7.95, 'eye'], [8.25, 'thunderBG'],
+  [8.4, 'draw'],
+  [9.05, 'dash'],
+  [9.8, 'clash', 1.4], [10.02, 'grind'], [11.05, 'clash', .9], [11.62, 'swish'],
+  [12.2, 'clash', .8], [12.68, 'clash', .9], [13.12, 'clash', 1.2],
+  [13.6, 'swish'], [13.9, 'land'],
+  [14.38, 'fireWave'], [14.7, 'tpOut', 1, 320, -80], [14.8, 'waveHit'], [14.82, 'tpIn', 1, -250, -250],
+  [15.1, 'strike'], [15.65, 'clash', 1.1], [16.0, 'tpOut', 1, -80, -80], [16.15, 'tpIn', 1, 300, -80],
+  [17.45, 'click'], [18.0, 'aura'], [18.3, 'thunderBG'], [18.45, 'beat'], [18.95, 'beat'], [19.35, 'beat'],
+  [19.62, 'dash2'], [19.82, 'cross'],
+  [22.12, 'cut'], [22.55, 'thud'], [23.3, 'fireOut'], [23.5, 'click2'], [24.8, 'thud'],
 ];
 function runEvent(e) {
-  const [t, type, pw] = e;
+  const [t, type, pw = 1, ex, ey] = e;
   switch (type) {
-    case 'clash': { const [x, y] = clashPoint(t); spark(x, y, 30 * pw, pw); fx.flash = .35 * pw; fx.flashCol = '255,240,200'; fx.shake = 12 * pw; break; }
+    case 'thunderBG': fx.bg.push({ lines: mkBolt([rr(200, 1080), -20], [rr(200, 1080), 380], 90), age: 0, life: .35 }); fx.skyFlash = 1; break;
+    case 'clash': {
+      const [x, y] = clashPoint(t);
+      sparks(x, y, 18 * pw, pw); fireBurst(x, y, 22 * pw, pw * .8); esparks(x, y, 22 * pw, pw);
+      for (let i = 0; i < 2 + pw * 2; i++) { const a = rr(0, 6.28); boltFx([x, y], [x + Math.cos(a) * 110 * pw, y + Math.sin(a) * 110 * pw], 25, .18, .8); }
+      fx.rings.push({ x, y, age: 0, life: .35, r: 120 * pw });
+      fx.flash = .35 * pw; fx.flashCol = '255,225,170'; fx.shake = 12 * pw; break;
+    }
     case 'dash': dust(-290, 10, -1); dust(290, 10, 1); break;
     case 'dash2': dust(-300, 16, -1); dust(300, 16, 1); fx.shake = 6; break;
-    case 'land': dust(-300, 10, 0); dust(300, 10, 0); break;
-    case 'cross': spark(0, -110, 70, 1.6); fx.flash = 1; fx.flashCol = '255,255,255'; fx.shake = 22; fx.lines.push({ y: -110, age: 0, life: 1.4, w: 1 }); break;
-    case 'cut': fx.lines.push({ y: -150, x: 285, age: 0, life: .5, w: .25, diag: true }); fx.flash = .25; fx.flashCol = '255,230,230'; break;
+    case 'land': dust(-320, 10, 0); dust(320, 10, 0); break;
+    case 'fireWave': fx.waves.push({ x: -230, y: -120, age: 0, v: 1350, life: .42 }); fx.shake = 6; break;
+    case 'waveHit': fx.waves = []; fireBurst(330, -100, 70, 1.3); smoke(330, -90, 20); fx.shake = 10; fx.flash = .3; fx.flashCol = '255,150,60'; break;
+    case 'tpOut': boltFx([ex, ey], [ex + rr(-60, 60), -900], 70, .3, 1.4); esparks(ex, ey, 30, 1); fx.flash = .25; fx.flashCol = '255,240,170'; break;
+    case 'tpIn': boltFx([ex + rr(-60, 60), -900], [ex, ey], 70, .35, 1.6); esparks(ex, ey, 40, 1.2); fx.flash = .4; fx.flashCol = '255,240,170'; fx.skyFlash = .7; fx.shake = 8; break;
+    case 'strike': {
+      const [x, y] = clashPoint(t);
+      boltFx([x + 40, -950], [x, y], 90, .45, 2.2); fx.skyFlash = 1;
+      sparks(x, y, 30, 1.4); fireBurst(x, y, 50, 1.3); esparks(x, y, 50, 1.5);
+      fx.rings.push({ x, y, age: 0, life: .5, r: 260 }); fx.flash = .9; fx.flashCol = '255,245,200'; fx.shake = 20; break;
+    }
+    case 'click': smoke(-284, -70, 8); break;
+    case 'cross':
+      fireBurst(0, -110, 150, 1.8); esparks(0, -110, 100, 1.8); sparks(0, -110, 40, 1.6);
+      for (let i = 0; i < 8; i++) { const a = i / 8 * 6.28 + rr(-.2, .2); boltFx([0, -110], [Math.cos(a) * 320, -110 + Math.sin(a) * 240], 40, .5, 1.2); }
+      fx.rings.push({ x: 0, y: -110, age: 0, life: .9, r: 700 });
+      fx.flash = 1; fx.flashCol = '255,255,255'; fx.shake = 24; fx.lines.push({ y: -110, age: 0, life: 1.6 }); fx.skyFlash = 1; break;
+    case 'cut': fx.lines.push({ y: -150, x: 285, age: 0, life: .55, diag: true }); esparks(285, -150, 30, 1); fx.flash = .25; fx.flashCol = '255,240,170'; break;
+    case 'fireOut': smoke(330, -90, 25); break;
     case 'thud': dust(300, 12, 0); fx.shake = 5; break;
   }
-  audio.play(type, pw || 1);
+  audio.play(type, pw);
 }
 
 // ---------- son (WebAudio, synthétisé) ----------
 const audio = (() => {
-  let ac = null, master = null, windGain = null, noiseBuf = null;
-  function mkNoise(c) { const b = c.createBuffer(1, c.sampleRate * 2, c.sampleRate), d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; return b; }
-  function init(c) {
-    ac = c; master = c.createGain(); master.gain.value = .8; master.connect(c.destination); noiseBuf = mkNoise(c);
+  let ac = null, master = null, noiseBuf = null, crackBuf = null, base = 0, loops = {};
+  function init(c, b) {
+    ac = c; base = b; loops = {};
+    master = c.createGain(); master.gain.value = .8;
+    const comp = c.createDynamicsCompressor(); master.connect(comp).connect(c.destination);
+    noiseBuf = c.createBuffer(1, c.sampleRate * 2, c.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    crackBuf = c.createBuffer(1, c.sampleRate * 2, c.sampleRate);
+    const e = crackBuf.getChannelData(0); for (let i = 0; i < e.length; i++) e[i] = Math.random() < .0015 ? (Math.random() * 2 - 1) : e[i - 1] * .7 || 0;
   }
+  const A = anim => base + realOf(anim);
   function noise(t, dur, f, q, vol, type = 'bandpass', fEnd) {
     const s = ac.createBufferSource(); s.buffer = noiseBuf;
     const fl = ac.createBiquadFilter(); fl.type = type; fl.frequency.setValueAtTime(f, t); fl.Q.value = q;
     if (fEnd) fl.frequency.exponentialRampToValueAtTime(fEnd, t + dur);
     const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + .01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    s.connect(fl).connect(g).connect(master); s.start(t, rr(0, 1)); s.stop(t + dur + .05);
+    s.connect(fl).connect(g).connect(master); s.start(t, Math.random()); s.stop(t + dur + .05);
   }
   function tone(t, f, dur, vol, type = 'sine', fEnd) {
     const o = ac.createOscillator(); o.type = type; o.frequency.setValueAtTime(f, t);
@@ -320,7 +426,30 @@ const audio = (() => {
     const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + .005); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     o.connect(g).connect(master); o.start(t); o.stop(t + dur + .05);
   }
-  function play(type, pw, at) {
+  // boucles : crépitement du feu / bourdonnement électrique, avec enveloppe en temps d'animation
+  function loopFire(env) {
+    const g = ac.createGain(); g.gain.setValueAtTime(0, A(0)); g.connect(master);
+    const s1 = ac.createBufferSource(); s1.buffer = noiseBuf; s1.loop = true;
+    const f1 = ac.createBiquadFilter(); f1.type = 'lowpass'; f1.frequency.value = 700; const g1 = ac.createGain(); g1.gain.value = .5;
+    s1.connect(f1).connect(g1).connect(g);
+    const s2 = ac.createBufferSource(); s2.buffer = crackBuf; s2.loop = true;
+    const f2 = ac.createBiquadFilter(); f2.type = 'highpass'; f2.frequency.value = 1500; const g2 = ac.createGain(); g2.gain.value = 1.4;
+    s2.connect(f2).connect(g2).connect(g);
+    env.forEach(([t, v]) => g.gain.linearRampToValueAtTime(v, A(t)));
+    s1.start(A(0)); s2.start(A(0)); s1.stop(A(END)); s2.stop(A(END));
+  }
+  function loopElec(env) {
+    const g = ac.createGain(); g.gain.setValueAtTime(0, A(0));
+    const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1100; bp.Q.value = .8;
+    const o1 = ac.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = 118;
+    const o2 = ac.createOscillator(); o2.type = 'square'; o2.frequency.value = 59.3;
+    const trem = ac.createGain(); trem.gain.value = .6; const lfo = ac.createOscillator(); lfo.type = 'square'; lfo.frequency.value = 13;
+    const lg = ac.createGain(); lg.gain.value = .4; lfo.connect(lg).connect(trem.gain);
+    o1.connect(bp); o2.connect(bp); bp.connect(trem).connect(g).connect(master);
+    env.forEach(([t, v]) => g.gain.linearRampToValueAtTime(v, A(t)));
+    [o1, o2, lfo].forEach(o => { o.start(A(0)); o.stop(A(END)); });
+  }
+  function play(type, pw = 1, at) {
     if (!ac) return;
     const t = at ?? ac.currentTime;
     switch (type) {
@@ -328,157 +457,221 @@ const audio = (() => {
         const s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
         const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 500;
         const lfo = ac.createOscillator(); lfo.frequency.value = .15; const lg = ac.createGain(); lg.gain.value = 250; lfo.connect(lg).connect(f.frequency);
-        windGain = ac.createGain(); windGain.gain.setValueAtTime(0.0001, t); windGain.gain.exponentialRampToValueAtTime(.22, t + 2.5);
-        windGain.gain.setValueAtTime(.22, t + 13.5); windGain.gain.linearRampToValueAtTime(.4, t + 15); windGain.gain.linearRampToValueAtTime(.05, t + 15.4);
-        windGain.gain.linearRampToValueAtTime(.2, t + 19); windGain.gain.linearRampToValueAtTime(0.0001, t + END);
-        s.connect(f).connect(windGain).connect(master); s.start(t); lfo.start(t); s.stop(t + END + .5); lfo.stop(t + END + .5);
+        const g = ac.createGain(); g.gain.setValueAtTime(0.0001, A(0));
+        [[2.5, .22], [17.5, .22], [19.5, .42], [19.85, .05], [23, .2], [END, 0]].forEach(([a, v]) => g.gain.linearRampToValueAtTime(v, A(a)));
+        s.connect(f).connect(g).connect(master); s.start(A(0)); lfo.start(A(0)); s.stop(A(END) + .5); lfo.stop(A(END) + .5);
+        loopFire([[8.4, 0], [8.8, .35], [17.3, .35], [17.5, 0], [18.0, 0], [19.5, .45], [22.1, .35], [23.3, 0]]);
+        loopElec([[8.4, 0], [8.6, .07], [17.3, .07], [17.5, 0], [18.0, 0], [19.5, .1], [23.3, .07], [23.55, 0]]);
         break;
       }
+      case 'emberHint': noise(t, 1.2, 600, 1, .12, 'lowpass'); break;
+      case 'zapHint': for (let i = 0; i < 4; i++) noise(t + i * .13, .05, 5000, 3, .2); break;
       case 'eye': tone(t, 3200, .5, .08, 'sine', 4200); break;
-      case 'draw': noise(t, .55, 3000, 6, .35, 'bandpass', 8000); tone(t + .05, 2600, .9, .06, 'triangle'); break;
+      case 'draw':
+        noise(t, .55, 3000, 6, .35, 'bandpass', 8000); tone(t + .05, 2600, .9, .06, 'triangle');
+        noise(t + .05, .9, 200, 1, .6, 'lowpass', 1800); // embrasement
+        tone(t, 900, .35, .15, 'sawtooth', 120);         // décharge
+        break;
+      case 'thunderBG': noise(t, 2.5, 180, 1, .5, 'lowpass', 60); noise(t, .3, 2500, 1, .2); break;
       case 'dash': case 'dash2': noise(t, .45, 300, 1, .5, 'lowpass', 2500); break;
       case 'swish': noise(t, .25, 900, 2, .35, 'bandpass', 3500); break;
       case 'clash':
         noise(t, .25 * pw, 4000, 3, .5 * pw);
-        [2380, 3170, 4410, 5900].forEach((f, i) => tone(t, f * rr(.97, 1.03), (1.1 - i * .2) * pw, .09 * pw / (i + 1), 'sine'));
-        tone(t, 140, .15, .4, 'sine', 50); break;
+        [2380, 3170, 4410, 5900].forEach((f, i) => tone(t, f * (.97 + Math.random() * .06), (1.1 - i * .2) * pw, .09 * pw / (i + 1), 'sine'));
+        tone(t, 140, .15, .4, 'sine', 50); noise(t, .5, 300, 1, .3 * pw, 'lowpass', 80); tone(t, 700, .2, .08, 'sawtooth', 90); break;
       case 'grind': noise(t - .2, .8, 5000, 8, .15); break;
       case 'land': case 'thud': tone(t, 90, .35, .5, 'sine', 40); noise(t, .3, 400, 1, .2, 'lowpass'); break;
-      case 'click': tone(t, 1800, .06, .25, 'square'); tone(t + .07, 1300, .08, .2, 'square'); noise(t, .1, 2500, 4, .2); break;
+      case 'fireWave': noise(t, .8, 150, 1, .8, 'lowpass', 2200); noise(t, .5, 1200, 1, .3); break;
+      case 'waveHit': noise(t, 1.2, 400, 1, .8, 'lowpass', 60); tone(t, 80, .6, .6, 'sine', 30); break;
+      case 'tpOut': case 'tpIn':
+        tone(t, 1600, .25, .2, 'sawtooth', 80); noise(t, .12, 6000, 1, .6, 'highpass'); noise(t, 1.0, 200, 1, .5, 'lowpass', 50); break;
+      case 'strike': noise(t, .15, 6000, 1, .9, 'highpass'); noise(t, 2.5, 220, 1, .9, 'lowpass', 40); tone(t, 60, 1.5, .7, 'sine', 30); play('clash', 1.4, t); break;
+      case 'click': case 'click2': tone(t, 1800, .06, .25, 'square'); tone(t + .07, 1300, .08, .2, 'square'); noise(t, .1, 2500, 4, .2); break;
+      case 'aura': noise(t, 1.6, 120, 1, .4, 'lowpass', 900); break;
       case 'beat': tone(t, 60, .25, .7, 'sine', 40); tone(t + .18, 55, .25, .5, 'sine', 40); break;
       case 'cross':
-        noise(t, 1.2, 6000, 2, .7, 'bandpass', 1500);
+        noise(t, 1.2, 6000, 2, .7, 'bandpass', 1500); noise(t, 2.2, 300, 1, .9, 'lowpass', 40);
         [1800, 2700, 3900].forEach((f, i) => tone(t, f, 2.5, .12 / (i + 1)));
-        tone(t, 70, 1.2, .8, 'sine', 30); break;
-      case 'cut': noise(t, .35, 7000, 5, .35, 'bandpass', 2000); tone(t, 2200, .6, .07); break;
+        tone(t, 70, 1.4, .8, 'sine', 25); tone(t, 1200, .5, .2, 'sawtooth', 60); break;
+      case 'cut': noise(t, .35, 7000, 5, .35, 'bandpass', 2000); tone(t, 1600, .3, .12, 'sawtooth', 100); break;
+      case 'fireOut': noise(t, 1.5, 3000, 1, .2, 'highpass', 8000); break;
     }
   }
-  return { init, play, get ready() { return !!ac; } };
+  return { init, play, get ready() { return !!ac; }, get ctx() { return ac; } };
 })();
 
-// ---------- rendu ----------
-const COL = { red: '#4a0707', redHi: '#6a0d0d', yel: '#a8700a', yelHi: '#c58a14' };
-let cam = { x: 0, y: 0, z: 1 }, shakeX = 0, shakeY = 0;
-const toS = (p) => [(p[0] - cam.x) * cam.z + W / 2 + shakeX, (p[1] - cam.y) * cam.z + H * .62 + shakeY];
-
-function drawBG(t) {
-  const groundY = toS([0, 0])[1];
-  const hz = HORIZON + (groundY - 560) * .18;  // l'horizon bouge un peu avec la caméra
-  const dy = hz - HORIZON;
-  const sc = 1 + (cam.z - 1) * .08;
-  ctx.drawImage(sky, -W * .5 - cam.x * .03 + (t * 4 % 1), dy * .5);
-  ctx.save();
-  ctx.translate(W / 2, hz); ctx.scale(sc, sc); ctx.translate(-W / 2, -HORIZON);
-  ctx.drawImage(far, -W - cam.x * .12 * cam.z, 0);
-  ctx.drawImage(mid, -W - cam.x * .25 * cam.z, 0);
+// ---------- katana ----------
+const STYLE = {
+  r: { wrap: '#140404', dia: '#a3161b', metal: '#b8892a', saya: ['#2a0303', '#6e0d0d', '#2a0303'], band: '#b8892a', cord: '#d42a1a',
+       spine: '#3b3437', mid: '#9a9396', edge: '#fff2e6', hamon: 'rgba(255,170,80,.95)', glow: '255,120,30' },
+  y: { wrap: '#0b0d14', dia: '#e0b11c', metal: '#e4c04a', saya: ['#060608', '#26262c', '#060608'], band: '#e4c04a', cord: '#f2c21a',
+       spine: '#6d7584', mid: '#dfe4ec', edge: '#ffffff', hamon: 'rgba(255,240,150,.95)', glow: '255,215,90' },
+};
+const curve = x => 7 * Math.pow(x / L.blade, 2);
+function localFrame(pt, dir, face) {
+  const s = toS(pt); ctx.save(); ctx.translate(...s); ctx.rotate(Math.atan2(dir[1], dir[0])); ctx.scale(cam.z, cam.z * face);
+}
+function drawSaya(sk, st, t) {
+  localFrame(sk.scab, sk.scabDir, sk.face);
+  const len = 102;
+  const g = ctx.createLinearGradient(0, -4, 0, 4); g.addColorStop(0, st.saya[0]); g.addColorStop(.45, st.saya[1]); g.addColorStop(1, st.saya[2]);
+  ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(0, -3.8);
+  for (let x = 0; x <= len; x += 6) ctx.lineTo(x, -3.8 - curve(x) + x * .008);
+  ctx.quadraticCurveTo(len + 4, -curve(len), len, 3.6 - curve(len));
+  for (let x = len; x >= 0; x -= 6) ctx.lineTo(x, 3.8 - curve(x) - x * .008);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = .8; ctx.beginPath();
+  for (let x = 4; x <= len - 6; x += 6) ctx.lineTo(x, -2 - curve(x)); ctx.stroke();
+  ctx.fillStyle = st.band;
+  ctx.fillRect(0, -4, 3, 8); ctx.fillRect(len - 6, -3.6 - curve(len - 6), 5, 7.2);
+  ctx.fillRect(14, -5.5 - curve(14), 4, 2);
   ctx.restore();
-  ctx.save(); ctx.translate(0, dy); ctx.drawImage(ground, -W - cam.x * .5 * cam.z, 0, W * 3, H + 200); ctx.restore();
-  // brouillard bas
-  const fog = ctx.createLinearGradient(0, hz - 60, 0, hz + 80);
-  fog.addColorStop(0, 'rgba(150,125,128,0)'); fog.addColorStop(.6, 'rgba(150,125,128,.28)'); fog.addColorStop(1, 'rgba(150,125,128,0)');
-  ctx.fillStyle = fog; ctx.fillRect(0, hz - 60, W, 140);
+  // sageo (cordon) qui pend et ondule dans le vent
+  const k = toS([sk.scab[0] + sk.scabDir[0] * 16, sk.scab[1] + sk.scabDir[1] * 16]), z = cam.z, sw = Math.sin(t * 3 + sk.face) * 6 * z;
+  ctx.strokeStyle = st.cord; ctx.lineWidth = 1.8 * z; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(...k); ctx.bezierCurveTo(k[0] + sw, k[1] + 14 * z, k[0] - 8 * z * sk.face + sw, k[1] + 22 * z, k[0] - 14 * z * sk.face + sw * 1.4, k[1] + 30 * z); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(...k); ctx.bezierCurveTo(k[0] + sw * .6, k[1] + 12 * z, k[0] + 4 * z + sw, k[1] + 20 * z, k[0] - 4 * z * sk.face + sw * 1.2, k[1] + 26 * z); ctx.stroke();
 }
-
-function drawSword(sk, glint) {
-  const z = cam.z;
-  // fourreau
-  const s0 = toS(sk.scab), s1 = toS([sk.scab[0] + sk.scabDir[0] * 92, sk.scab[1] + sk.scabDir[1] * 92]);
-  ctx.lineCap = 'round'; ctx.strokeStyle = '#141114'; ctx.lineWidth = 7 * z;
-  ctx.beginPath(); ctx.moveTo(...s0); ctx.lineTo(...s1); ctx.stroke();
-  const [dx, dy] = sk.drawn ? sk.sdir : sk.scabDir;
-  const h = sk.hilt;
-  // poignée
-  const hb = toS([h[0] - dx * L.handle, h[1] - dy * L.handle]), hs = toS(h);
-  ctx.strokeStyle = '#1e1a1a'; ctx.lineWidth = 6 * z;
-  ctx.beginPath(); ctx.moveTo(...hb); ctx.lineTo(...hs); ctx.stroke();
-  ctx.strokeStyle = sk.face > 0 ? '#7a1010' : '#b8860f'; ctx.lineWidth = 2 * z; ctx.setLineDash([3 * z, 4 * z]);
-  ctx.beginPath(); ctx.moveTo(...hb); ctx.lineTo(...hs); ctx.stroke(); ctx.setLineDash([]);
+function drawKatana(sk, st, heat, t) {
+  const drawn = sk.drawn;
+  localFrame(sk.hilt, sk.dir, sk.face);
+  if (drawn) ctx.translate(L.guard, 0);
+  // tsuka (poignée) : tressage en losanges
+  ctx.fillStyle = st.wrap; ctx.beginPath(); ctx.roundRect(-27, -3, 26, 6, 2); ctx.fill();
+  ctx.fillStyle = st.dia;
+  for (let x = -24.5; x < -3; x += 4.2) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + 2, -2); ctx.lineTo(x + 4, 0); ctx.lineTo(x + 2, 2); ctx.closePath(); ctx.fill(); }
+  ctx.fillStyle = st.metal; ctx.beginPath(); ctx.roundRect(-29.5, -3.2, 3, 6.4, 1.2); ctx.fill();   // kashira
+  ctx.fillRect(-1.5, -3.3, 1.5, 6.6);                                                         // fuchi
   // tsuba (garde)
-  const nx = -dy, ny = dx;
-  const g0 = toS([h[0] + nx * 7, h[1] + ny * 7]), g1 = toS([h[0] - nx * 7, h[1] - ny * 7]);
-  ctx.strokeStyle = '#2b2622'; ctx.lineWidth = 4 * z; ctx.beginPath(); ctx.moveTo(...g0); ctx.lineTo(...g1); ctx.stroke();
-  if (!sk.drawn) return;
-  // lame légèrement courbe
-  const tip = toS(sk.tip), mid = toS([(h[0] + sk.tip[0]) / 2 - nx * 4, (h[1] + sk.tip[1]) / 2 - ny * 4]);
-  ctx.strokeStyle = '#c9cdd3'; ctx.lineWidth = 4.2 * z;
-  ctx.beginPath(); ctx.moveTo(...hs); ctx.quadraticCurveTo(...mid, ...tip); ctx.stroke();
-  ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 1.3 * z;
-  ctx.beginPath(); ctx.moveTo(...hs); ctx.quadraticCurveTo(...mid, ...tip); ctx.stroke();
-  if (glint > 0) { // reflet qui glisse le long de la lame
-    const k = 1 - glint, p = [lerp(hs[0], tip[0], k), lerp(hs[1], tip[1], k)];
-    const g = ctx.createRadialGradient(...p, 0, ...p, 30 * z);
-    g.addColorStop(0, 'rgba(255,255,255,.95)'); g.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(...p, 30 * z, 0, 7); ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 1.5 * z;
-    ctx.beginPath(); ctx.moveTo(p[0] - 26 * z, p[1]); ctx.lineTo(p[0] + 26 * z, p[1]); ctx.moveTo(p[0], p[1] - 14 * z); ctx.lineTo(p[0], p[1] + 14 * z); ctx.stroke();
+  ctx.fillStyle = '#121212'; ctx.beginPath(); ctx.roundRect(0, -8, 2.6, 16, 1.2); ctx.fill();
+  ctx.strokeStyle = st.metal; ctx.lineWidth = .7; ctx.stroke();
+  if (drawn) {
+    const Lb = L.blade;
+    // halo de pouvoir
+    if (heat > 0) {
+      ctx.globalCompositeOperation = 'lighter';
+      for (const [w, a] of [[16, .12], [8, .25]]) {
+        ctx.strokeStyle = `rgba(${st.glow},${a * heat})`; ctx.lineWidth = w; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(6, 0); for (let x = 6; x <= Lb; x += 8) ctx.lineTo(x + 2.6, -curve(x)); ctx.stroke();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    ctx.translate(2.6, 0);
+    // lame courbe avec kissaki (pointe)
+    const g = ctx.createLinearGradient(0, -3, 0, 3);
+    g.addColorStop(0, st.spine); g.addColorStop(.35, st.mid); g.addColorStop(.75, st.mid); g.addColorStop(1, st.edge);
+    ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(0, -2.7);
+    for (let x = 0; x <= Lb - 4; x += 4) ctx.lineTo(x, -2.7 + x * .004 - curve(x));
+    ctx.lineTo(Lb + 1, -2.0 - curve(Lb));
+    ctx.quadraticCurveTo(Lb - 3, 2 - curve(Lb - 3), Lb - 12, 2.4 - curve(Lb - 12));
+    for (let x = Lb - 12; x >= 0; x -= 4) ctx.lineTo(x, 2.9 - x * .004 - curve(x));
+    ctx.closePath(); ctx.fill();
+    // hamon (ligne de trempe ondulée) + bohi (gorge)
+    ctx.strokeStyle = st.hamon; ctx.lineWidth = .7; ctx.beginPath();
+    for (let x = 4; x <= Lb - 12; x += 2) ctx.lineTo(x, 1.1 + Math.sin(x * .55) * .55 - curve(x)); ctx.stroke();
+    ctx.strokeStyle = 'rgba(30,30,35,.5)'; ctx.lineWidth = .6; ctx.beginPath();
+    for (let x = 8; x <= Lb - 25; x += 4) ctx.lineTo(x, -1.4 - curve(x)); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = .5; ctx.beginPath(); ctx.moveTo(Lb - 12, -2.2 - curve(Lb - 12)); ctx.lineTo(Lb - 12, 2.4 - curve(Lb - 12)); ctx.stroke();
+    // habaki (collier doré)
+    const hg = ctx.createLinearGradient(0, -3.4, 0, 3.4); hg.addColorStop(0, '#7a5a12'); hg.addColorStop(.5, '#f5d77a'); hg.addColorStop(1, '#7a5a12');
+    ctx.fillStyle = hg; ctx.fillRect(0, -3.3, 4.5, 6.6);
   }
+  ctx.restore();
 }
 
-function drawFighter(sk, col, alpha = 1, eye = 0) {
+// ---------- personnages ----------
+const COL = { r: '#4a0707', y: '#a8700a' };
+function drawBody(sk, col, alpha, st, heat, t, eye) {
   const z = cam.z;
-  ctx.save(); ctx.globalAlpha = alpha;
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = col; ctx.fillStyle = col;
+  ctx.save(); ctx.globalAlpha = alpha; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = col; ctx.fillStyle = col;
   const limb = (a, b, c, w) => { ctx.lineWidth = w * z; ctx.beginPath(); ctx.moveTo(...toS(a)); ctx.lineTo(...toS(b)); ctx.lineTo(...toS(c)); ctx.stroke(); };
   limb(sk.sh, sk.be, sk.bh, 15);
   limb(sk.hip, sk.bk, sk.bf, 17);
   ctx.lineWidth = 21 * z; ctx.beginPath(); ctx.moveTo(...toS(sk.hip)); ctx.lineTo(...toS(sk.neck)); ctx.stroke();
   limb(sk.hip, sk.fk, sk.ff, 17);
   const hc = toS(sk.head); ctx.beginPath(); ctx.arc(...hc, L.head * z, 0, Math.PI * 2); ctx.fill();
-  if (alpha === 1) drawSword(sk, 0);
-  ctx.strokeStyle = col;
+  if (st) { drawSaya(sk, st, t); drawKatana(sk, st, heat, t); }
+  ctx.strokeStyle = col; ctx.lineCap = 'round';
   limb(sk.sh, sk.fe, sk.fh, 15);
-  if (eye > 0) { // éclat dans le regard
+  if (eye > 0) {
     const e = [hc[0] + sk.face * 11 * z, hc[1] - 3 * z];
     ctx.globalCompositeOperation = 'lighter';
-    const g = ctx.createRadialGradient(...e, 0, ...e, 40 * z * eye);
-    g.addColorStop(0, `rgba(255,255,255,${eye})`); g.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(...e, 40 * z, 0, 7); ctx.fill();
-    ctx.strokeStyle = `rgba(255,255,255,${eye})`; ctx.lineWidth = 2 * z;
-    ctx.beginPath(); ctx.moveTo(e[0] - 30 * z * eye, e[1]); ctx.lineTo(e[0] + 30 * z * eye, e[1]); ctx.stroke();
+    const spr = sk.face > 0 ? SPR.orange : SPR.bolt, r = 50 * z * eye;
+    ctx.globalAlpha = eye; ctx.drawImage(spr, e[0] - r, e[1] - r, r * 2, r * 2); ctx.drawImage(SPR.white, e[0] - r * .3, e[1] - r * .3, r * .6, r * .6);
+    ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 2 * z;
+    ctx.beginPath(); ctx.moveTo(e[0] - 34 * z * eye, e[1]); ctx.lineTo(e[0] + 34 * z * eye, e[1]); ctx.stroke();
   }
   ctx.restore();
 }
 
-// traînée des lames
+// lumière portée (le feu et la foudre éclairent la scène)
+function light(pt, rgb, radius, a) {
+  if (a <= 0) return;
+  const s = toS(pt), r = radius * cam.z;
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  const g = ctx.createRadialGradient(...s, 0, ...s, r);
+  g.addColorStop(0, `rgba(${rgb},${a})`); g.addColorStop(1, `rgba(${rgb},0)`);
+  ctx.fillStyle = g; ctx.fillRect(s[0] - r, s[1] - r, r * 2, r * 2);
+  const gy = toS([pt[0], 0]);  // reflet au sol
+  ctx.translate(gy[0], gy[1]); ctx.scale(1, .18);
+  const g2 = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 1.2); g2.addColorStop(0, `rgba(${rgb},${a * .9})`); g2.addColorStop(1, `rgba(${rgb},0)`);
+  ctx.fillStyle = g2; ctx.beginPath(); ctx.arc(0, 0, r * 1.2, 0, 7); ctx.fill();
+  ctx.restore();
+}
+
+// traînées des lames (couleur du pouvoir)
 const trails = { r: [], y: [] };
-function drawTrail(list, sk, t) {
-  list.push({ t, h: sk.hilt.slice(), p: sk.tip.slice(), d: sk.drawn });
-  while (list.length && t - list[0].t > .09) list.shift();
-  if (list.length < 2) return;
+function drawTrail(list, sk, t, rgb, visible) {
+  list.push({ t, h: onBlade(sk, .45), p: sk.tip.slice(), d: sk.drawn && visible });
+  while (list.length && t - list[0].t > .1) list.shift();
   ctx.save(); ctx.globalCompositeOperation = 'lighter';
   for (let i = 1; i < list.length; i++) {
     const a = list[i - 1], b = list[i];
-    if (!a.d || !b.d || b.t <= a.t) continue;
+    if (!a.d || !b.d || b.t <= a.t || Math.hypot(b.h[0] - a.h[0], b.h[1] - a.h[1]) > 70) continue;
     const sp = Math.hypot(b.p[0] - a.p[0], b.p[1] - a.p[1]) / (b.t - a.t);
-    const al = clamp((sp - 600) / 4000, 0, .22) * (1 - (t - b.t) / .09);
+    const al = clamp((sp - 500) / 3500, 0, .45) * (1 - (t - b.t) / .1);
     if (al <= 0) continue;
-    // seulement le tiers extérieur de la lame
-    const ma = toS([lerp(a.h[0], a.p[0], .6), lerp(a.h[1], a.p[1], .6)]), mb = toS([lerp(b.h[0], b.p[0], .6), lerp(b.h[1], b.p[1], .6)]);
-    const pts = [null, toS(a.p), toS(b.p)];
-    const g = ctx.createLinearGradient(...ma, ...pts[1]);
-    g.addColorStop(0, 'rgba(255,250,235,0)'); g.addColorStop(1, `rgba(255,250,235,${al})`);
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.moveTo(...ma); ctx.lineTo(...pts[1]); ctx.lineTo(...pts[2]); ctx.lineTo(...mb); ctx.closePath(); ctx.fill();
+    const ha = toS(a.h), hb = toS(b.h), pa = toS(a.p), pb = toS(b.p);
+    const g = ctx.createLinearGradient(...ha, ...pa); g.addColorStop(0, `rgba(${rgb},0)`); g.addColorStop(.7, `rgba(${rgb},${al * .6})`); g.addColorStop(1, `rgba(255,255,240,${al})`);
+    ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(...ha); ctx.lineTo(...pa); ctx.lineTo(...pb); ctx.lineTo(...hb); ctx.closePath(); ctx.fill();
   }
   ctx.restore();
 }
 
+// ---------- décor dynamique ----------
+function drawBG(t, dt) {
+  const groundY = toS([0, 0])[1], hz = HORIZON + (groundY - 560) * .18, dy = hz - HORIZON, sc = 1 + (cam.z - 1) * .08;
+  ctx.drawImage(sky, -W * .5 - cam.x * .03, dy * .5);
+  // éclairs lointains dans le ciel
+  if (fx.skyFlash > 0) { ctx.fillStyle = `rgba(190,190,230,${.35 * fx.skyFlash})`; ctx.fillRect(0, 0, W, hz); }
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (const b of fx.bg) {
+    b.age += dt; const a = (1 - b.age / b.life) * (rnd() < .7 ? 1 : .3);
+    for (const ln of b.lines) {
+      ctx.beginPath(); ctx.moveTo(ln[0][0], ln[0][1] + dy * .5); for (const p of ln) ctx.lineTo(p[0], p[1] + dy * .5);
+      ctx.strokeStyle = `rgba(220,220,255,${.25 * a})`; ctx.lineWidth = 6; ctx.stroke(); ctx.strokeStyle = `rgba(255,255,255,${.8 * a})`; ctx.lineWidth = 1.5; ctx.stroke();
+    }
+  }
+  ctx.restore(); fx.bg = fx.bg.filter(b => b.age < b.life);
+  ctx.save(); ctx.translate(W / 2, hz); ctx.scale(sc, sc); ctx.translate(-W / 2, -HORIZON);
+  ctx.drawImage(far, -W - cam.x * .12 * cam.z, 0); ctx.drawImage(mid, -W - cam.x * .25 * cam.z, 0);
+  ctx.restore();
+  ctx.save(); ctx.translate(0, dy); ctx.drawImage(ground, -W - cam.x * .5 * cam.z, 0, W * 3, H + 200); ctx.restore();
+  const fog = ctx.createLinearGradient(0, hz - 60, 0, hz + 80);
+  fog.addColorStop(0, 'rgba(150,125,128,0)'); fog.addColorStop(.6, 'rgba(150,125,128,.28)'); fog.addColorStop(1, 'rgba(150,125,128,0)');
+  ctx.fillStyle = fog; ctx.fillRect(0, hz - 60, W, 140);
+}
 function drawAmbient(t, dt) {
-  const wind = t < 7 ? 1 : t < 13.5 ? 1.6 : t < 15.1 ? 2.6 : 1.2;
+  const wind = t < 8 ? 1 : t < 17.5 ? 1.6 : t < 19.7 ? 2.6 : 1.2;
   ctx.save();
   for (const a of ambient) {
     a.x += (60 + 70 * a.s) * wind * dt; a.ph += dt * 3;
     if (a.x > cam.x + 760 / cam.z) a.x -= 1520 / cam.z + 100;
     if (a.x < cam.x - 760 / cam.z - 100) a.x += 1520 / cam.z;
     const p = toS([a.x, a.y + Math.sin(a.ph) * 12]);
-    if (a.leaf) {
-      ctx.fillStyle = 'rgba(40,25,25,.75)';
-      ctx.save(); ctx.translate(...p); ctx.rotate(a.ph); ctx.beginPath(); ctx.ellipse(0, 0, 5 * a.s * cam.z, 2.2 * a.s * cam.z, 0, 0, 7); ctx.fill(); ctx.restore();
-    } else {
-      ctx.fillStyle = 'rgba(230,210,200,.35)'; ctx.fillRect(p[0], p[1], 1.6 * a.s, 1.6 * a.s);
-    }
+    if (a.leaf) { ctx.fillStyle = 'rgba(40,25,25,.75)'; ctx.save(); ctx.translate(...p); ctx.rotate(a.ph); ctx.beginPath(); ctx.ellipse(0, 0, 5 * a.s * cam.z, 2.2 * a.s * cam.z, 0, 0, 7); ctx.fill(); ctx.restore(); }
+    else { ctx.fillStyle = 'rgba(230,210,200,.35)'; ctx.fillRect(p[0], p[1], 1.6 * a.s, 1.6 * a.s); }
   }
-  // traits de vent
   ctx.strokeStyle = `rgba(220,210,210,${.05 * wind})`; ctx.lineWidth = 1;
   for (let i = 0; i < 6; i++) {
     const y = ((i * 97 + 40) % 420) + 60, x = ((t * 500 * wind + i * 333) % (W + 600)) - 300;
@@ -486,126 +679,228 @@ function drawAmbient(t, dt) {
   }
   ctx.restore();
 }
-
 function drawParts(dt) {
   ctx.save();
   parts = parts.filter(p => (p.age += dt) < p.life);
+  const z = cam.z;
   for (const p of parts) {
-    const k = 1 - p.age / p.life;
-    if (p.k === 'spark') {
-      p.vy += 900 * dt; p.vx *= .98;
-      const x0 = p.x, y0 = p.y; p.x += p.vx * dt; p.y += p.vy * dt;
-      const a = toS([x0 - p.vx * .02, y0 - p.vy * .02]), b = toS([p.x, p.y]);
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.strokeStyle = `rgba(255,${200 + 55 * k | 0},${120 * k | 0},${k})`; ctx.lineWidth = 2 * cam.z;
-      ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke();
-    } else {
-      p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= .97; p.r += 30 * dt;
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.fillStyle = `rgba(130,110,105,${.35 * k})`;
-      const s = toS([p.x, p.y]); ctx.beginPath(); ctx.arc(...s, p.r * cam.z, 0, 7); ctx.fill();
+    const k = p.age / p.life, q = 1 - k;
+    switch (p.k) {
+      case 'fire': {
+        p.vy -= 320 * dt; p.vx = p.vx * Math.pow(.15, dt) + 40 * dt; p.vy *= Math.pow(.4, dt);
+        p.x += p.vx * dt; p.y += p.vy * dt;
+        const spr = k < .12 ? SPR.white : k < .35 ? SPR.yellow : k < .7 ? SPR.orange : SPR.red;
+        const r = p.r * (1 - .55 * k) * z * 1.6, s = toS([p.x, p.y]);
+        ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = q * .85;
+        ctx.drawImage(spr, s[0] - r, s[1] - r, r * 2, r * 2); break;
+      }
+      case 'smoke': {
+        p.x += p.vx * dt; p.y += p.vy * dt; p.r += 18 * dt; const s = toS([p.x, p.y]);
+        ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+        ctx.fillStyle = `rgba(45,40,42,${.3 * q})`; ctx.beginPath(); ctx.arc(...s, p.r * z, 0, 7); ctx.fill(); break;
+      }
+      case 'spark': case 'espark': {
+        const el = p.k === 'espark';
+        p.vy += (el ? 200 : 900) * dt; p.vx *= .97;
+        const x0 = p.x, y0 = p.y; p.x += p.vx * dt; p.y += p.vy * dt;
+        const a = toS([x0 - p.vx * .02, y0 - p.vy * .02]), b = toS([p.x, p.y]);
+        ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 1;
+        ctx.strokeStyle = el ? `rgba(255,${235 + 20 * q | 0},${120 + 120 * q | 0},${q})` : `rgba(255,${180 + 75 * q | 0},${90 * q | 0},${q})`;
+        ctx.lineWidth = (el ? 1.6 : 2) * z; ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke(); break;
+      }
+      case 'ember': {
+        p.ph += dt * 5; p.x += (p.vx + Math.sin(p.ph) * 30) * dt; p.y += p.vy * dt; const s = toS([p.x, p.y]), r = 5 * z;
+        ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = q; ctx.drawImage(SPR.orange, s[0] - r, s[1] - r, r * 2, r * 2); break;
+      }
+      case 'dust': {
+        p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= .97; p.r += 30 * dt;
+        ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+        ctx.fillStyle = `rgba(130,110,105,${.35 * q})`; const s = toS([p.x, p.y]); ctx.beginPath(); ctx.arc(...s, p.r * z, 0, 7); ctx.fill(); break;
+      }
     }
   }
   ctx.restore();
 }
 
-function text(str, y, size, alpha, spacing = .3, col = '255,255,255') {
+function textParts(partsArr, y, size, alpha, spacing = .3) {
   if (alpha <= 0) return;
   ctx.save(); ctx.globalAlpha = clamp(alpha, 0, 1);
-  ctx.font = `700 ${size}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-  ctx.fillStyle = `rgb(${col})`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = `800 ${size}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
   if ('letterSpacing' in ctx) ctx.letterSpacing = `${size * spacing}px`;
-  ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 12;
-  ctx.fillText(str, W / 2 + size * spacing / 2, y); ctx.restore();
+  ctx.textBaseline = 'middle'; ctx.shadowColor = 'rgba(0,0,0,.7)'; ctx.shadowBlur = 14;
+  const widths = partsArr.map(([s]) => ctx.measureText(s).width), total = widths.reduce((a, b) => a + b, 0);
+  let x = W / 2 - total / 2 + size * spacing / 2;
+  partsArr.forEach(([s, c], i) => { ctx.fillStyle = c; ctx.fillText(s, x, y); x += widths[i]; });
+  ctx.restore();
 }
-const fade = (t, a, b, c, d) => t < a ? 0 : t < b ? (t - a) / (b - a) : t < c ? 1 : t < d ? 1 - (t - c) / (d - c) : 0;
 
+// ---------- intensités des pouvoirs ----------
+function fireLevel(t) {
+  if (t < 8.4) return [0, 0];
+  const ig = clamp((t - 8.4) / .45, 0, 1);
+  let k = 1;
+  if (t > 22.12) k = clamp(1 - (t - 22.12) / 1.2, 0, 1);
+  if (t > 19.6 && t < 22.1) k = 1.3;
+  return [k, ig];
+}
+function elecLevel(t) { return t < 8.4 ? 0 : (t > 19.6 && t < 22.1 ? 1.3 : 1) * (.75 + .25 * Math.sin(t * 40)); }
+
+// ---------- rendu d'une image ----------
 let prevT = -1;
+function emitN(rate, dt) { const n = rate * dt; return Math.floor(n) + (rnd() < n % 1 ? 1 : 0); }
 function render(t, dt) {
-  // évènements franchis
   for (const e of EVENTS) if (e[0] > prevT && e[0] <= t) runEvent(e);
-  // étincelles continues pendant le corps-à-corps
-  if (t > 8.4 && t < 9.0 && rnd() < .5) { const [x, y] = clashPoint(t); spark(x, y, 2, .4); }
+  if (t > 9.8 && t < 10.4 && rnd() < .5) { const [x, y] = clashPoint(t); sparks(x, y, 2, .4); fire(x, y, rr(-60, 60), rr(-100, -20), rr(6, 12), .4); esparks(x, y, 1, .5); }
   prevT = t;
 
   cam = camAt(t);
-  fx.shake *= Math.pow(.02, dt); fx.flash = Math.max(0, fx.flash - dt * 2.2);
+  fx.shake *= Math.pow(.02, dt); fx.flash = Math.max(0, fx.flash - dt * 2.2); fx.skyFlash = Math.max(0, fx.skyFlash - dt * 3);
   shakeX = rr(-1, 1) * fx.shake; shakeY = rr(-1, 1) * fx.shake;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  drawBG(t, dt);
 
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  drawBG(t);
-
-  // respiration
-  const breathe = (p, ph) => { p.t += Math.sin(t * 2.1 + ph) * 1.4; p.fa1 += Math.sin(t * 2.1 + ph + 1) * 1.5; return p; };
-  const rp = breathe(poseAt(RED, t), 0), yp = breathe(poseAt(YEL, t), 1.7);
+  const rp = livePose(RT, t, 0), yp = livePose(YT, t, 1.7);
   const rs = skeleton(rp, 1), ys = skeleton(yp, -1);
+  const yHide = hidden(YT, t);
+  const [fLvl, ig] = fireLevel(t), eLvl = elecLevel(t);
+  const rFire = rs.drawn ? fLvl : 0, yElec = ys.drawn && !yHide ? eLvl : 0;
 
-  // ombres au sol
-  for (const s of [rs, ys]) {
-    const g = toS([s.hip[0], 0]);
-    ctx.fillStyle = 'rgba(20,10,12,.35)'; ctx.beginPath(); ctx.ellipse(g[0], g[1] + 2, 55 * cam.z, 7 * cam.z, 0, 0, 7); ctx.fill();
+  // ombres
+  for (const [s, hid] of [[rs, false], [ys, yHide]]) {
+    if (hid) continue;
+    const g = toS([s.hip[0], 0]), sc = clamp(1 - (-s.hip[1] - 80) / 300, .4, 1);
+    ctx.fillStyle = 'rgba(20,10,12,.35)'; ctx.beginPath(); ctx.ellipse(g[0], g[1] + 2, 55 * cam.z * sc, 7 * cam.z, 0, 0, 7); ctx.fill();
   }
-  // images rémanentes pendant les ruées
-  for (const [track, face, col] of [[RED, 1, COL.red], [YEL, -1, COL.yel]]) {
-    const v = Math.abs(poseAt(track, t).x - poseAt(track, t - .02).x) / .02;
-    if (v > 700) for (let i = 3; i >= 1; i--) drawFighter(skeleton(poseAt(track, t - i * .035), face), col, .16 * (4 - i) / 3);
-  }
-  const eye = fade(t, 6.6, 6.68, 6.75, 7.05);
-  const glint = t > 7.15 && t < 7.65 ? (t - 7.15) / .5 : 0;
-  // celui qui est devant à l'écran passe au-dessus
-  const order = t > 15.2 ? [[ys, COL.yel, 'y'], [rs, COL.red, 'r']] : [[rs, COL.red, 'r'], [ys, COL.yel, 'y']];
-  for (const [s, c, id] of order) { drawFighter(s, c, 1, eye); if (glint) drawSword(s, glint); }
-  drawTrail(trails.r, rs, t); drawTrail(trails.y, ys, t);
-  drawParts(dt);
-  drawAmbient(t, dt);
+  // lumières portées
+  light(bladeMid(rs), '255,110,30', 260, .22 * rFire);
+  light(bladeMid(ys), '255,215,90', 230, .16 * yElec * (rnd() < .2 ? 1.6 : 1));
+  const aura = fade(t, 18.0, 19.2, 19.6, 19.75);
+  light(rs.neck, '255,90,20', 240, .2 * aura); if (!yHide) light(ys.neck, '255,220,100', 220, .16 * aura);
 
-  // grands traits de coupe
-  for (const l of fx.lines) {
-    l.age += dt; const k = l.age / l.life; if (k >= 1) continue;
+  // images rémanentes (ruées)
+  for (const [K, face, col, tint] of [[RT, 1, COL.r, '255,110,30'], [YT, -1, COL.y, '255,220,100']]) {
+    if (hidden(K, t)) continue;
+    const v = Math.abs(poseAt(K, t).x - poseAt(K, t - .02).x) / .02;
+    if (v > 700 && v < 20000) {
+      for (let i = 3; i >= 1; i--) drawBody(skeleton(poseAt(K, t - i * .035), face), col, .16 * (4 - i) / 3, null, 0, t, 0);
+      if (face < 0) { const a = skeleton(poseAt(K, t - .12), face).hip, b = ys.hip; ctx.save(); ctx.globalCompositeOperation = 'lighter'; strokeBolt(jag(a, b, 30, 5), .9, 1.2); ctx.restore(); }
+      else { for (const f of [rs.ff, rs.bf]) if (rnd() < .9) fire(f[0], f[1] - 4, rr(-150, -40), rr(-80, -20), rr(8, 15), rr(.3, .6)); }
+    }
+  }
+
+  const eye = fade(t, 7.9, 7.98, 8.05, 8.35);
+  const order = t > 19.85 ? [[ys, 'y'], [rs, 'r']] : [[rs, 'r'], [ys, 'y']];
+  for (const [s, id] of order) {
+    if (id === 'y' && yHide) continue;
+    drawBody(s, COL[id], 1, STYLE[id], id === 'r' ? rFire : yElec, t, eye);
+  }
+
+  // ---- FEU (rouge) ----
+  if (rFire > 0) {
+    for (let i = emitN(260 * rFire, dt); i > 0; i--) {
+      const u = rnd() * ig, p = onBlade(rs, u);
+      fire(p[0] + rr(-3, 3), p[1] + rr(-3, 3), rr(-25, 25), rr(-140, -50), rr(5, 11) * (.7 + .5 * u), rr(.22, .45));
+    }
+    if (ig < 1) { const p = onBlade(rs, ig); fireBurst(p[0], p[1], 2, .5); }
+  }
+  if (t > 22.12 && t < 24.5 && rnd() < .5) { const p = onBlade(rs, rnd()); smoke(p[0], p[1], 1); }
+  // braises pendant le gros plan sur la main
+  if (t > 6.4 && t < 8.4) for (let i = emitN(25, dt); i > 0; i--) { const p = rs.scab; ember(p[0] + rr(-15, 15), p[1] + rr(-10, 5)); }
+  if (aura > 0) {
+    for (let i = emitN(240 * aura, dt); i > 0; i--) { const p = onBody(rs); fire(p[0] + rr(-6, 6), p[1], rr(-20, 20), rr(-160, -60), rr(6, 12), rr(.25, .5)); }
+    for (let i = emitN(20 * aura, dt); i > 0; i--) ember(rs.hip[0] + rr(-80, 80), rr(-30, 0));
+  }
+
+  // ---- FOUDRE (jaune) ----
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  if (yElec > 0) {
+    const n = 2 + (rnd() < .5 ? 1 : 0);
+    for (let i = 0; i < n; i++) {
+      const u1 = rnd() * .5, u2 = u1 + rr(.3, .5);
+      strokeBolt(jag(onBlade(ys, u1), onBlade(ys, u2), 7, 4), rr(.5, 1), .7);
+    }
+    if (rnd() < .25) { const p = onBlade(ys, rnd()), a = rr(0, 6.28), l = rr(25, 60); strokeBolt(jag(p, [p[0] + Math.cos(a) * l, p[1] + Math.sin(a) * l], 10, 4), 1, .6); }
+    for (let i = emitN(30, dt); i > 0; i--) { const p = onBlade(ys, rnd()); esparks(p[0], p[1], 1, .3); }
+  }
+  if (t > 7.0 && t < 8.4 && !yHide && rnd() < .3) { const p = ys.scab; strokeBolt(jag([p[0] + rr(-12, 12), p[1] + rr(-12, 6)], [p[0] + rr(-25, 25), p[1] + rr(-25, 10)], 6, 3), .9, .5); }
+  if (aura > 0 && !yHide) for (let i = 0; i < 1 + aura * 3; i++) { if (rnd() < aura) strokeBolt(jag(onBody(ys), onBody(ys), 14, 4), rr(.4, 1), .7); }
+  // éclairs (frappes, téléportations)
+  for (const b of fx.bolts) {
+    b.age += dt; if (rnd() < .35) b.lines = mkBolt(b.a, b.b, b.disp);
+    const a = (1 - b.age / b.life) * (rnd() < .8 ? 1 : .4);
+    b.lines.forEach((ln, i) => strokeBolt(ln, a, i ? b.w * .5 : b.w));
+  }
+  fx.bolts = fx.bolts.filter(b => b.age < b.life);
+  ctx.restore();
+
+  drawTrail(trails.r, rs, t, '255,120,30', true);
+  drawTrail(trails.y, ys, t, '255,220,90', !yHide);
+
+  // vague de feu
+  for (const w of fx.waves) {
+    w.age += dt; const x = w.x + w.v * w.age;
+    for (let i = 0; i < 14; i++) { const a = rr(-1.1, 1.1); fire(x + Math.cos(a) * 60 - 60, w.y + Math.sin(a) * 75, rr(-200, 0), rr(-80, 20), rr(10, 20), rr(.2, .4)); }
+    light([x, w.y], '255,110,30', 300, .35);
     ctx.save(); ctx.globalCompositeOperation = 'lighter';
-    if (l.diag) {
-      const a = toS([l.x - 40, l.y - 25]), b = toS([l.x + 40, l.y + 25]);
-      ctx.strokeStyle = `rgba(255,255,255,${1 - k})`; ctx.lineWidth = 3 * cam.z;
-      ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke();
-    } else {
-      const y = toS([0, l.y])[1], th = (k < .1 ? k * 10 : 1 - (k - .1) / .9) * 10;
-      const g = ctx.createLinearGradient(0, y - th * 3, 0, y + th * 3);
-      g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(.5, `rgba(255,255,255,${1 - k})`); g.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = g; ctx.fillRect(0, y - th * 3, W, th * 6);
+    const c = toS([x - 60, w.y]);
+    for (const [lw, col] of [[22, 'rgba(255,90,20,.35)'], [10, 'rgba(255,190,80,.7)'], [4, 'rgba(255,255,230,.95)']]) {
+      ctx.strokeStyle = col; ctx.lineWidth = lw * cam.z; ctx.beginPath(); ctx.ellipse(c[0], c[1], 60 * cam.z, 78 * cam.z, 0, -1.2, 1.2); ctx.stroke();
     }
     ctx.restore();
   }
-  fx.lines = fx.lines.filter(l => l.age < l.life);
+  fx.waves = fx.waves.filter(w => w.age < w.life);
 
-  // étalonnage : vignette + teinte chaude
+  drawParts(dt);
+  drawAmbient(t, dt);
+
+  // ondes de choc
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (const r of fx.rings) {
+    r.age += dt; const k = r.age / r.life; if (k >= 1) continue;
+    const s = toS([r.x, r.y]); ctx.strokeStyle = `rgba(255,235,200,${.6 * (1 - k)})`; ctx.lineWidth = (1 - k) * 10 * cam.z;
+    ctx.beginPath(); ctx.ellipse(...s, r.r * EASE.out(k) * cam.z, r.r * .6 * EASE.out(k) * cam.z, 0, 0, 7); ctx.stroke();
+  }
+  fx.rings = fx.rings.filter(r => r.age < r.life);
+  // traits de coupe
+  for (const l of fx.lines) {
+    l.age += dt; const k = l.age / l.life; if (k >= 1) continue;
+    if (l.diag) {
+      const a = toS([l.x - 45, l.y - 28]), b = toS([l.x + 45, l.y + 28]);
+      strokeBolt([[l.x - 45, l.y - 28], [l.x + 45, l.y + 28]], 1 - k, 1);
+    } else {
+      const y = toS([0, l.y])[1], th = (k < .1 ? k * 10 : 1 - (k - .1) / .9) * 10;
+      const g = ctx.createLinearGradient(0, y - th * 3, 0, y + th * 3);
+      g.addColorStop(0, 'rgba(255,120,30,0)'); g.addColorStop(.35, `rgba(255,140,40,${.8 * (1 - k)})`); g.addColorStop(.5, `rgba(255,255,255,${1 - k})`);
+      g.addColorStop(.65, `rgba(255,220,90,${.8 * (1 - k)})`); g.addColorStop(1, 'rgba(255,220,90,0)');
+      ctx.fillStyle = g; ctx.fillRect(0, y - th * 3, W, th * 6);
+    }
+  }
+  fx.lines = fx.lines.filter(l => l.age < l.life);
+  ctx.restore();
+
+  // étalonnage
   const vg = ctx.createRadialGradient(W / 2, H / 2, H * .35, W / 2, H / 2, H * .95);
   vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.6)');
   ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
-  // désaturation pendant le grand ralenti
-  const slow = fade(t, 15.08, 15.2, 15.3, 17.4);
+  const slow = fade(t, 19.7, 19.8, 19.9, 22.0);
   if (slow > 0) { ctx.fillStyle = `rgba(20,20,40,${.25 * slow})`; ctx.fillRect(0, 0, W, H); }
   if (fx.flash > 0) { ctx.fillStyle = `rgba(${fx.flashCol},${Math.min(1, fx.flash)})`; ctx.fillRect(0, 0, W, H); }
-
-  // bandes cinéma
-  const bar = 70 * EASE.io(clamp((t - 6.2) / .8, 0, 1));
+  const bar = 70 * EASE.io(clamp((t - 7.55) / .8, 0, 1));
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, bar); ctx.fillRect(0, H - bar, W, bar);
 
-  // textes
-  text('ROUGE  ✕  JAUNE', H * .3, 52, fade(t, .8, 1.8, 3.4, 4.4), .35);
-  text('le vent se lève…', H * .3 + 60, 20, fade(t, 1.6, 2.6, 3.4, 4.4) * .7, .25);
-  // fondu final
-  const end = fade(t, 20.6, 21.4, 99, 99);
+  textParts([['FEU', '#ff7a1a'], ['  ✕  ', '#f2efe9'], ['FOUDRE', '#ffd84a']], H * .3, 52, fade(t, .8, 1.8, 3.6, 4.6), .35);
+  textParts([['le vent se lève…', 'rgba(255,255,255,.75)']], H * .3 + 60, 20, fade(t, 1.6, 2.6, 3.6, 4.6), .25);
+  const end = fade(t, 25.6, 26.4, 99, 99);
   if (end > 0) { ctx.fillStyle = `rgba(0,0,0,${end})`; ctx.fillRect(0, 0, W, H); }
-  text('FIN', H / 2, 64, fade(t, 21.2, 21.8, 99, 99), .6);
+  textParts([['FIN', '#f2efe9']], H / 2, 64, fade(t, 26.2, 26.8, 99, 99), .6);
 }
 
 // ---------- boucle ----------
 let animT = 0, last = 0, running = false;
-function reset() { animT = 0; prevT = -1; parts = []; fx = { flash: 0, flashCol: '255,255,255', shake: 0, lines: [] }; trails.r = []; trails.y = []; seed = 777; }
+function reset() { animT = 0; prevT = -1; parts = []; resetFx(); trails.r = []; trails.y = []; seed = 777; }
 function frame(now) {
   const dt = Math.min(.05, (now - last) / 1000); last = now;
-  const sp = speedAt(animT);
-  animT += dt * sp;
+  const sp = speedAt(animT); animT += dt * sp;
   render(animT, dt * sp);
   if (animT < END) requestAnimationFrame(frame);
   else { running = false; overlay.querySelector('button').textContent = '↻ REVOIR'; overlay.classList.remove('hidden'); }
@@ -613,30 +908,24 @@ function frame(now) {
 const overlay = document.getElementById('overlay');
 function start() {
   if (running) return;
-  if (!audio.ready) { try { const AC = window.AudioContext || window.webkitAudioContext; audio.init(new AC()); } catch (e) {} }
+  try { const AC = window.AudioContext || window.webkitAudioContext; const c = audio.ready && audio.ctx.state !== 'closed' ? audio.ctx : new AC(); c.resume && c.resume(); audio.init(c, c.currentTime + .05); } catch (e) {}
   reset(); running = true; overlay.classList.add('hidden');
   last = performance.now(); requestAnimationFrame(frame);
 }
 overlay.addEventListener('click', start);
 cv.addEventListener('click', () => { const el = document.getElementById('wrap'); (el.requestFullscreen || el.webkitRequestFullscreen || (() => {})).call(el); });
+render(2.5, 0); prevT = -1; parts = []; resetFx();
 
-// image de fond tant que rien n'est lancé
-render(2.5, 0); prevT = -1; parts = [];
-
-// ---------- export vidéo (utilisé par render.js) ----------
+// ---------- export vidéo ----------
 window.__export = {
   END, W, H,
   reset() { reset(); },
-  // avance d'une image de 1/fps seconde réelle, renvoie le temps d'animation
   step(fps) { const dt = 1 / fps, sp = speedAt(animT); animT += dt * sp; render(animT, dt * sp); return animT; },
   frame() { return cv.toDataURL('image/jpeg', .92); },
-  // rend la bande-son entière hors-ligne (WAV base64) avec les mêmes sons
-  async audio(fps) {
-    // reconstitue le temps réel de chaque évènement en tenant compte des ralentis
-    const realOf = target => { let a = 0, r = 0; const dt = 1 / 600; while (a < target) { a += dt * speedAt(a); r += dt; } return r; };
-    let total = realOf(END) + 1;
+  async audio() {
+    const total = realOf(END) + 1.5;
     const oc = new OfflineAudioContext(2, Math.ceil(44100 * total), 44100);
-    audio.init(oc);
+    audio.init(oc, 0);
     for (const e of EVENTS) audio.play(e[1], e[2] || 1, realOf(e[0]));
     const buf = await oc.startRendering();
     const n = buf.length, ch = [buf.getChannelData(0), buf.getChannelData(1)];
