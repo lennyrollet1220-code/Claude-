@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Pause Écran</string>
+    <string name="accessibility_description">Permet à Pause Écran de savoir quelle appli est ouverte, afin de bloquer les applis non autorisées quand le temps quotidien est écoulé, et de protéger ses propres réglages.</string>
+    <string name="block_message">Temps écoulé. C\'est le moment de faire ta séance de sport de 20 minutes 💪</string>
+    <string name="admin_explanation">Empêche de désinstaller Pause Écran sans le code PIN.</string>
+</resources>

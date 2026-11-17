@@ -1,5 +1,7 @@
 # ⚡ FORGE : ton coach sportif perso
 
+> 📱 Ce dépôt contient aussi **[Pause Écran](PauseEcran/)**, une appli Android (Kotlin) qui limite le temps d'écran. Voir [PauseEcran/GUIDE.md](PauseEcran/GUIDE.md).
+
 Application web installable (PWA) qui crée **un programme sportif 100 % personnalisé** à partir d'un questionnaire d'une quarantaine de questions.
 
 ## Ce que fait l'appli

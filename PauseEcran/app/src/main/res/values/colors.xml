@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary">#4F5BD5</color>
+    <color name="primary_container">#E3E6FF</color>
+    <color name="background">#F5F6FA</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="text_primary">#1C1F2A</color>
+    <color name="text_secondary">#5F6475</color>
+    <color name="track">#E4E6EE</color>
+    <color name="ok">#2E7D32</color>
+    <color name="warn">#C62828</color>
+    <color name="block_bg">#5F6368</color>
+    <color name="ic_bg">#4F5BD5</color>
+</resources>
