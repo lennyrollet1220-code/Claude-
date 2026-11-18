@@ -2,7 +2,22 @@
 
 Pause Écran limite ton temps d'écran à **1 h 30 par jour** (sauf le jour libre). Quand le temps est écoulé, les applis non autorisées affichent un écran gris.
 
-Compte environ **45 minutes** la première fois, surtout à cause des téléchargements.
+Sans ordinateur : 5 minutes. Avec un ordinateur : environ 45 minutes la première fois.
+
+---
+
+## 📲 Méthode la plus simple : sans ordinateur
+
+1. Sur ton téléphone, ouvre ce lien dans Chrome :
+   **https://github.com/lennyrollet1220-code/Claude-/releases/download/pause-ecran/PauseEcran.apk**
+2. Le fichier se télécharge. Si Chrome affiche « Ce type de fichier peut être dangereux », touche **Télécharger quand même**.
+3. Touche la notification **PauseEcran.apk** (ou ouvre-le depuis l'appli *Fichiers → Téléchargements*).
+4. Android affiche « Pour votre sécurité, l'installation d'applis inconnues est bloquée » : touche **Paramètres**, active **Autoriser cette source**, puis reviens en arrière.
+5. Touche **Installer**. Si Play Protect affiche « Appli non sécurisée » ou « bloquée », touche **Plus de détails → Installer quand même**. C'est normal : l'appli ne vient pas du Play Store et utilise l'accessibilité.
+6. Touche **Ouvrir**, puis suis l'**étape 5** plus bas (PIN avec ta personne de confiance, applis, jour libre, autorisations).
+7. ⚠️ Avec cette méthode, l'accessibilité est presque toujours grisée (« Paramètre restreint ») : va dans *Paramètres → Applis → Pause Écran*, touche **⋮** en haut à droite, puis **Autoriser les paramètres restreints**, puis réactive l'accessibilité.
+
+Ensuite, tu peux ignorer les étapes 1 à 4 ci-dessous : elles ne servent qu'à installer avec un ordinateur.
 
 ---
 
