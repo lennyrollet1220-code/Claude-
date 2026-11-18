@@ -76,6 +76,10 @@ class GuardService : AccessibilityService() {
     private fun guardSettings(pkg: String, force: Boolean): Boolean {
         if (pkg !in AppRules.PROTECTED_PACKAGES) return false
         if (!Prefs.isSetupDone(this) || !Prefs.protectionOn(this) || Prefs.isUnlocked(this)) return false
+        // Tant que l'installation n'est pas finie (autorisations manquantes), on laisse les Paramètres libres.
+        if (!Perms.hasUsageAccess(this) || !Perms.isAdminActive(this)) return false
+        // L'écran PIN est déjà affiché : on ne le relance pas (sinon le code tapé s'efface).
+        if (BlockActivity.visibleMode == BlockActivity.MODE_PROTECTED) return true
         val now = SystemClock.uptimeMillis()
         if (!force && now - lastSettingsScan < 400) return false
         lastSettingsScan = now

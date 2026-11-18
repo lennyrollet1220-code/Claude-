@@ -17,7 +17,12 @@ class BlockActivity : AppCompatActivity() {
         const val EXTRA_MODE = "mode"
         const val MODE_LIMIT = "limit"          // temps écoulé
         const val MODE_PROTECTED = "protected"  // page des Paramètres protégée par le PIN
+
+        /** Mode de l'écran actuellement visible (null si caché). */
+        @Volatile var visibleMode: String? = null
     }
+
+    private var mode: String? = null
 
     private lateinit var pinLayout: TextInputLayout
     private lateinit var pinInput: TextInputEditText
@@ -44,7 +49,11 @@ class BlockActivity : AppCompatActivity() {
     }
 
     private fun render(i: Intent) {
-        val isProtected = i.getStringExtra(EXTRA_MODE) == MODE_PROTECTED
+        val newMode = i.getStringExtra(EXTRA_MODE) ?: MODE_LIMIT
+        if (newMode == mode) return // même écran déjà affiché : on ne touche pas au code en cours de saisie
+        mode = newMode
+        visibleMode = newMode
+        val isProtected = newMode == MODE_PROTECTED
         val emoji = findViewById<TextView>(R.id.emoji)
         val message = findViewById<TextView>(R.id.message)
         val detail = findViewById<TextView>(R.id.detail)
@@ -95,6 +104,16 @@ class BlockActivity : AppCompatActivity() {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         )
         finish()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        visibleMode = mode
+    }
+
+    override fun onPause() {
+        super.onPause()
+        visibleMode = null
     }
 
     override fun onStop() {
