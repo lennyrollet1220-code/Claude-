@@ -7,6 +7,7 @@ import android.os.HandlerThread
 import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
+import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
 import android.view.inputmethod.InputMethodManager
 import java.util.Calendar
@@ -55,12 +56,25 @@ class GuardService : AccessibilityService() {
         } catch (_: Exception) { }
     }
 
+    /** Le clavier n'est jamais « l'appli ouverte » : on ne le bloque jamais. */
+    private fun isKeyboard(pkg: String, e: AccessibilityEvent): Boolean {
+        val cls = e.className?.toString().orEmpty()
+        if (cls.contains("inputmethod", ignoreCase = true)) return true
+        val defaultIme = try {
+            Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+        } catch (_: Exception) {
+            null
+        }
+        if (defaultIme != null && pkg == defaultIme.substringBefore('/')) return true
+        return false
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val e = event ?: return
         val pkg = e.packageName?.toString() ?: return
         when (e.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                if (pkg in ignored) return
+                if (pkg in ignored || isKeyboard(pkg, e)) return
                 currentPkg = pkg
                 if (guardSettings(pkg, force = true)) return
                 worker.removeCallbacks(periodicCheck)

@@ -6,6 +6,10 @@ on:
     paths: ["PauseEcran/**", ".github/workflows/pause-ecran-apk.yml"]
   workflow_dispatch:
 
+concurrency:
+  group: pause-ecran-apk
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
