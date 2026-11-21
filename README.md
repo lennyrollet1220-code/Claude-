@@ -59,3 +59,25 @@ icons/                icônes de l'appli
 ```
 
 Photos : [Unsplash](https://unsplash.com). FORGE ne remplace pas un avis médical.
+
+---
+
+# 🤖 J.A.R.V.I.S. : assistant vocal IA (dossier `jarvis/`)
+
+Assistant vocal façon Iron Man, gratuit, dans le navigateur : interface holographique, tu parles, il répond à voix haute et **exécute plusieurs ordres d'un coup**.
+
+**Ouvrir :** `https://<ton-pseudo>.github.io/<nom-du-repo>/jarvis/` (une fois GitHub Pages activé), de préférence dans **Chrome ou Edge** (reconnaissance vocale).
+
+| Tu dis… | Jarvis fait… |
+|---|---|
+| « Réveille-moi à 7h », « minuteur 10 min » | Alarme / minuteur avec sonnerie, voix et notification (page ouverte) |
+| « Crée une image d'un loup en armure » | Génère l'image (Pollinations, gratuit) |
+| « Cherche les résultats du PSG » | Ouvre la recherche Google |
+| « Écris un mail à Paul pour… » | Rédige le mail et l'ouvre prêt à envoyer dans Gmail |
+| « Ouvre mes mails » | Ouvre Gmail |
+| « Quelle météo à Lyon ? » | Météo réelle (Open-Meteo) |
+| « Mets de la musique » / « itinéraire vers… » | YouTube / Google Maps |
+
+- **Parler :** clique sur le réacteur, ou maintiens **Espace**. Bouton **Écoute** : mode mains libres, dis « Jarvis, … ».
+- **Cerveau IA (Réglages) :** Pollinations marche sans clé. Pour plus d'intelligence, colle une clé **gratuite** Google Gemini (aistudio.google.com/apikey) ou Groq (console.groq.com/keys).
+- Les clés et l'historique restent dans ton navigateur (localStorage).
