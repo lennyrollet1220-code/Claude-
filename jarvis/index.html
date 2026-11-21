@@ -258,10 +258,46 @@ footer kbd{font-family:Orbitron;border:1px solid var(--line);padding:1px 5px;fon
     <div class="field">
       <label>Moteur de voix</label>
       <select id="cfgTts">
-        <option value="groq">Voix IA Groq (Orpheus, voix réaliste, accent anglais)</option>
-        <option value="browser">Voix du téléphone / navigateur (français)</option>
+        <option value="azure">🇫🇷 Voix française Microsoft (Henri, Denise…) — recommandé</option>
+        <option value="browser">Voix du téléphone / navigateur</option>
+        <option value="groq">Voix IA Groq (accent anglais)</option>
       </select>
       <p id="ttsHelp">La voix Groq demande d'accepter une fois ses conditions (gratuit) : <a href="https://console.groq.com/playground?model=canopylabs%2Forpheus-v1-english" target="_blank" rel="noopener">ouvrir la page Groq</a>, puis « Accept ».</p>
+    </div>
+    <div id="fAzure">
+      <div class="field">
+        <label>Clé Azure Speech</label>
+        <div style="display:flex;gap:8px"><input id="cfgAzureKey" type="password" placeholder="Clé 1 de ta ressource Speech" style="flex:1"><button class="btn" type="button" id="btnPasteAz">Coller</button></div>
+        <p>Gratuit (500 000 caractères/mois ≈ 3 000 réponses) :<br>
+        1. Crée un compte sur <a href="https://azure.microsoft.com/free" target="_blank" rel="noopener">azure.microsoft.com/free</a>.<br>
+        2. Ouvre <a href="https://portal.azure.com/#create/Microsoft.CognitiveServicesSpeechServices" target="_blank" rel="noopener">Créer une ressource Speech</a> → région <b>France Central</b> → tarif <b>Free F0</b> → Créer.<br>
+        3. Dans la ressource : « Clés et point de terminaison » → copie la <b>Clé 1</b> ici.</p>
+      </div>
+      <div class="field">
+        <label>Région Azure</label>
+        <select id="cfgAzureRegion">
+          <option value="francecentral">France Central</option><option value="westeurope">West Europe</option><option value="northeurope">North Europe</option>
+          <option value="switzerlandnorth">Switzerland North</option><option value="eastus">East US</option><option value="canadacentral">Canada Central</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Voix française</label>
+        <select id="cfgAzureVoice">
+          <option value="fr-FR-HenriNeural">Henri (homme, posé) — style Jarvis</option>
+          <option value="fr-FR-RemyMultilingualNeural">Rémy (homme, très naturel)</option>
+          <option value="fr-FR-AlainNeural">Alain (homme)</option>
+          <option value="fr-FR-ClaudeNeural">Claude (homme, grave)</option>
+          <option value="fr-FR-JeromeNeural">Jérôme (homme)</option>
+          <option value="fr-FR-YvesNeural">Yves (homme)</option>
+          <option value="fr-FR-DeniseNeural">Denise (femme)</option>
+          <option value="fr-FR-VivienneMultilingualNeural">Vivienne (femme, très naturelle)</option>
+          <option value="fr-FR-EloiseNeural">Éloïse (femme, jeune)</option>
+          <option value="fr-CA-ThierryNeural">Thierry (Québec)</option>
+          <option value="fr-BE-GerardNeural">Gérard (Belgique)</option>
+          <option value="fr-CH-FabriceNeural">Fabrice (Suisse)</option>
+        </select>
+        <div class="row" style="justify-content:flex-start"><button class="btn" type="button" id="btnTestVoice">▶ Tester la voix</button></div>
+      </div>
     </div>
     <div class="field" id="fGroqVoice">
       <label>Voix Groq</label>
@@ -273,6 +309,10 @@ footer kbd{font-family:Orbitron;border:1px solid var(--line);padding:1px 5px;fon
     <div class="field" id="fBrowserVoice">
       <label>Voix du navigateur</label>
       <select id="cfgVoice"></select>
+      <p>Les voix marquées ★ sont les plus naturelles. Pour en avoir de meilleures, gratuitement :<br>
+      <b>iPhone</b> : Réglages → Accessibilité → Contenu énoncé → Voix → Français → télécharge « Thomas (premium/amélioré) ».<br>
+      <b>Android</b> : Paramètres → « Synthèse vocale » → Google → Installer les données vocales → Français → choisis une voix.<br>
+      <b>PC</b> : avec le navigateur <b>Edge</b>, les voix « Microsoft … Online (Natural) » sont gratuites et excellentes.</p>
     </div>
     <div class="field">
       <label>Vitesse de la voix : <span id="rateVal">1.05</span></label>
@@ -314,7 +354,9 @@ const PROVIDERS = {
   pollinations: { label: 'POLLINATIONS', model: 'openai', needsKey: false,
     help: 'Aucune clé nécessaire. Service communautaire gratuit : parfois lent ou saturé.' }
 };
-let cfg = Object.assign({ name: '', provider: 'pollinations', keys: {}, models: {}, voice: '', rate: 1.05, speak: true, tts: 'groq', groqVoice: 'daniel' }, LS.get('cfg', {}));
+let cfg = Object.assign({ name: '', provider: 'pollinations', keys: {}, models: {}, voice: '', rate: 1.05, speak: true, tts: 'browser', groqVoice: 'daniel', azureKey: '', azureRegion: 'francecentral', azureVoice: 'fr-FR-HenriNeural' }, LS.get('cfg', {}));
+// Migration : l'ancienne voix par défaut (Groq, accent anglais) → voix française
+if (!cfg.ttsV2) { cfg.ttsV2 = true; if (cfg.tts === 'groq') cfg.tts = cfg.azureKey ? 'azure' : 'browser'; }
 const groqKey = () => (cfg.keys.groq || '').trim();
 let history = LS.get('history', []);
 let alarms = LS.get('alarms', []);
@@ -473,13 +515,15 @@ const synth = window.speechSynthesis;
 let voices = [];
 function loadVoices() {
   if (!synth) { $('sTts').textContent = 'N/D'; return; }
+  const GOOD = /natural|online|neural|premium|enhanced|amélioré|wavenet|studio|siri/i;
+  const score = (v) => (GOOD.test(v.name) ? 10 : 0) + (/fr-FR/i.test(v.lang) ? 3 : 0) + (/henri|remy|rémy|thomas|paul|alain|claude|jerome|yves|male|homme/i.test(v.name) ? 2 : 0) + (v.localService ? 0 : 1);
   voices = synth.getVoices().filter((v) => /^fr/i.test(v.lang));
   if (!voices.length) voices = synth.getVoices();
+  voices.sort((a, b) => score(b) - score(a));
   const sel = $('cfgVoice'); sel.innerHTML = '';
-  voices.forEach((v) => { const o = document.createElement('option'); o.value = v.name; o.textContent = `${v.name} (${v.lang})`; sel.appendChild(o); });
-  if (!cfg.voice) {
-    const pref = voices.find((v) => /thomas|henri|paul|daniel|male|homme/i.test(v.name)) || voices.find((v) => /google/i.test(v.name)) || voices[0];
-    if (pref) cfg.voice = pref.name;
+  voices.forEach((v) => { const o = document.createElement('option'); o.value = v.name; o.textContent = `${GOOD.test(v.name) ? '★ ' : ''}${v.name} (${v.lang})`; sel.appendChild(o); });
+  if (!cfg.voice || !voices.some((v) => v.name === cfg.voice) || (!cfg.voicePicked && voices[0] && score(voices[0]) >= 10)) {
+    if (voices[0]) cfg.voice = voices[0].name;
   }
   sel.value = cfg.voice;
   $('sTts').textContent = voices.length ? 'OK' : 'N/D';
@@ -506,14 +550,29 @@ async function groqTTS(chunk) {
   if (!r.ok) { let m = 'Erreur voix ' + r.status; try { const j = await r.json(); m = j.error?.message || m; if (j.error?.code === 'model_terms_required') m = 'TERMS'; } catch {} throw new Error(m); }
   return audio().decodeAudioData(await r.arrayBuffer());
 }
-async function speakGroq(text) {
+const xmlEsc = (t) => t.replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c]));
+async function azureTTS(chunk) {
+  const rate = Math.round((cfg.rate - 1) * 100);
+  const lang = (cfg.azureVoice || 'fr-FR-HenriNeural').slice(0, 5);
+  const ssml = `<speak version='1.0' xml:lang='${lang}'><voice name='${cfg.azureVoice || 'fr-FR-HenriNeural'}'><prosody rate='${rate >= 0 ? '+' : ''}${rate}%' pitch='-2%'>${xmlEsc(chunk)}</prosody></voice></speak>`;
+  const r = await fetch(`https://${cfg.azureRegion || 'francecentral'}.tts.speech.microsoft.com/cognitiveservices/v1`, {
+    method: 'POST',
+    headers: { 'Ocp-Apim-Subscription-Key': (cfg.azureKey || '').trim(), 'Content-Type': 'application/ssml+xml', 'X-Microsoft-OutputFormat': 'audio-24khz-48kbitrate-mono-mp3' },
+    body: ssml
+  });
+  if (!r.ok) throw new Error(r.status === 401 ? 'clé Azure refusée (vérifie la clé et la région)' : r.status === 429 ? 'quota gratuit Azure atteint' : 'erreur Azure ' + r.status);
+  return audio().decodeAudioData(await r.arrayBuffer());
+}
+function speakGroq(text) { return speakAI(text, groqTTS, 180); }
+function speakAzure(text) { return speakAI(text, azureTTS, 900); }
+async function speakAI(text, fetcher, max) {
   const my = ++ttsToken, a = audio();
-  const chunks = chunkText(text);
-  let next = groqTTS(chunks[0]);
+  const chunks = chunkText(text, max);
+  let next = fetcher(chunks[0]);
   for (let i = 0; i < chunks.length; i++) {
     const buf = await next;
     if (my !== ttsToken) return;
-    if (i + 1 < chunks.length) next = groqTTS(chunks[i + 1]);
+    if (i + 1 < chunks.length) next = fetcher(chunks[i + 1]);
     await new Promise((res) => {
       const src = a.createBufferSource(), an = a.createAnalyser(); an.fftSize = 256;
       src.buffer = buf; src.connect(an); an.connect(a.destination); ttsSource = src;
@@ -533,6 +592,10 @@ async function speak(text) {
   stopSpeaking();
   pauseRecognition();
   try {
+    if (cfg.tts === 'azure' && (cfg.azureKey || '').trim()) {
+      try { await speakAzure(clean); return; }
+      catch (e) { if (!groqTtsWarned) { groqTtsWarned = true; addMsg('bot', 'Voix Microsoft indisponible : ' + e.message + '. Je prends la voix du téléphone.'); } }
+    }
     if (cfg.tts === 'groq' && groqKey()) {
       try { await speakGroq(clean); return; }
       catch (e) {
@@ -989,11 +1052,24 @@ function refreshKeyField() {
 function openSettings() {
   $('cfgName').value = cfg.name; $('cfgProvider').value = cfg.provider;
   $('cfgRate').value = cfg.rate; $('rateVal').textContent = cfg.rate; $('cfgSpeak').value = cfg.speak ? '1' : '0';
-  $('cfgGroq').value = groqKey(); $('cfgTts').value = cfg.tts; $('cfgGroqVoice').value = cfg.groqVoice; refreshTts();
+  $('cfgGroq').value = groqKey(); $('cfgTts').value = cfg.tts; $('cfgGroqVoice').value = cfg.groqVoice;
+  $('cfgAzureKey').value = cfg.azureKey || ''; $('cfgAzureRegion').value = cfg.azureRegion; $('cfgAzureVoice').value = cfg.azureVoice; refreshTts();
   refreshKeyField(); $('settings').classList.add('open');
 }
 $('cfgProvider').onchange = refreshKeyField;
-function refreshTts() { const g = $('cfgTts').value === 'groq'; $('fGroqVoice').style.display = g ? '' : 'none'; $('ttsHelp').style.display = g ? '' : 'none'; }
+function refreshTts() {
+  const v = $('cfgTts').value;
+  $('fGroqVoice').style.display = v === 'groq' ? '' : 'none'; $('ttsHelp').style.display = v === 'groq' ? '' : 'none';
+  $('fAzure').style.display = v === 'azure' ? '' : 'none'; $('fBrowserVoice').style.display = v === 'browser' ? '' : 'none';
+}
+function readVoiceForm() {
+  cfg.tts = $('cfgTts').value; cfg.groqVoice = $('cfgGroqVoice').value; cfg.voice = $('cfgVoice').value || cfg.voice;
+  cfg.azureKey = $('cfgAzureKey').value.trim(); cfg.azureRegion = $('cfgAzureRegion').value; cfg.azureVoice = $('cfgAzureVoice').value;
+  cfg.rate = +$('cfgRate').value; cfg.speak = true;
+}
+$('btnTestVoice').onclick = () => { audio(); const keep = { ...cfg }; readVoiceForm(); groqTtsWarned = false; speak('Bonjour ' + title() + '. Je suis Jarvis, votre assistant personnel. Tous les systèmes sont opérationnels.').finally(() => { cfg.speak = keep.speak; }); };
+$('btnPasteAz').onclick = async () => { try { const t = (await navigator.clipboard.readText()).trim(); if (t) { $('cfgAzureKey').value = t; $('cfgTts').value = 'azure'; refreshTts(); } } catch { $('cfgAzureKey').focus(); } };
+$('cfgVoice').onchange = () => { cfg.voicePicked = true; };
 $('cfgTts').onchange = refreshTts;
 $('cfgGroq').oninput = () => { cfg.keys.groq = $('cfgGroq').value.trim(); if ($('cfgProvider').value === 'groq') $('cfgKey').value = cfg.keys.groq; };
 $('btnPaste').onclick = async () => {
@@ -1008,7 +1084,7 @@ $('settings').onclick = (e) => { if (e.target.id === 'settings') $('settings').c
 $('btnSave').onclick = () => {
   cfg.name = $('cfgName').value.trim(); cfg.provider = $('cfgProvider').value;
   cfg.voice = $('cfgVoice').value; cfg.rate = +$('cfgRate').value; cfg.speak = $('cfgSpeak').value === '1';
-  cfg.keys.groq = $('cfgGroq').value.trim(); cfg.tts = $('cfgTts').value; cfg.groqVoice = $('cfgGroqVoice').value;
+  cfg.keys.groq = $('cfgGroq').value.trim(); readVoiceForm(); cfg.speak = $('cfgSpeak').value === '1';
   if (cfg.keys.groq && cfg.provider === 'pollinations') cfg.provider = 'groq';
   groqTtsWarned = false; sttLabel();
   LS.set('cfg', cfg); $('settings').classList.remove('open'); updateProviderPill();
