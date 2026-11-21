@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>J.A.R.V.I.S.</title>
 <meta name="theme-color" content="#02070d">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="JARVIS">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800&family=Rajdhani:wght@400;500;600&display=swap" rel="stylesheet">
@@ -109,24 +116,38 @@ footer kbd{font-family:Orbitron;border:1px solid var(--line);padding:1px 5px;fon
 @keyframes pulse{50%{background-color:rgba(255,77,94,.15)}}
 
 @media (max-width:1100px){
-  .app{grid-template-columns:1fr;grid-template-rows:auto auto 1fr auto;overflow-y:auto;height:auto;min-height:100%}
-  body{overflow:auto}
-  .side.left{display:none}
-  .side.right{order:3}
-  .core-wrap{width:min(62vw,340px)}
-  .chat{min-height:280px}
-}
-@media (max-width:600px){
-  .app{padding:10px 16px;gap:10px}
-  .brand{font-size:15px;letter-spacing:.25em}
-  .hdr-right .pill{display:none}
-  .msg{max-width:96%}
+  html,body{height:100%;overflow:hidden}
+  body{overscroll-behavior:none;-webkit-tap-highlight-color:transparent}
+  .app{display:flex;flex-direction:column;height:100dvh;gap:8px;
+    padding:calc(env(safe-area-inset-top) + 10px) 16px calc(env(safe-area-inset-bottom) + 10px)}
+  header{flex:none;padding-bottom:8px}
   .brand small{display:none}
+  .brand{font-size:16px;letter-spacing:.25em}
   .hdr-right{gap:6px}
-  .btn{padding:7px 8px;font-size:10px;letter-spacing:.08em}
-  .inputbar .btn{padding:0 10px}
-  .inputbar input{min-width:0}
+  .hdr-right .pill{display:none}
+  .btn{padding:8px 9px;font-size:10px;letter-spacing:.08em}
+  .mob{display:inline-flex !important}
+  .side.left{display:none}
+  .center{flex:1;min-height:0;gap:8px}
+  .core-wrap{width:min(52vw,26dvh)}
+  .transcript{font-size:17px;min-height:22px}
+  .chat{min-height:0}
+  .msg{max-width:94%;font-size:16px}
+  .quick-m{display:flex !important;gap:6px;overflow-x:auto;width:100%;flex:none;scrollbar-width:none;padding-bottom:2px}
+  .quick-m::-webkit-scrollbar{display:none}
+  .quick-m button{flex:none;font:inherit;font-size:14px;background:rgba(63,224,255,.06);border:1px solid var(--line);color:var(--txt);padding:7px 11px;border-radius:16px}
+  .inputbar{flex:none;align-items:center}
+  .inputbar input{min-width:0;font-size:16px;padding:12px;border-radius:24px}
+  .inputbar .btn{height:46px;width:46px;padding:0;border-radius:50%;font-size:16px}
+  .mic{width:62px;height:62px;border-radius:50%;border-width:2px;box-shadow:var(--glow);flex:none}
+  .mic svg{width:28px;height:28px}
+  .side.right{position:fixed;left:0;right:0;bottom:0;z-index:40;height:72dvh;padding:16px 16px calc(env(safe-area-inset-bottom) + 16px);
+    background:#030c13;border-top:1px solid var(--cyan);box-shadow:0 -10px 40px rgba(0,0,0,.7);
+    transform:translateY(105%);transition:transform .3s ease}
+  .side.right.open{transform:none}
+  .drawer-close{display:block !important}
   footer{display:none}
+  .gallery{grid-template-columns:1fr 1fr 1fr}
 }
 </style>
 </head>
@@ -137,6 +158,7 @@ footer kbd{font-family:Orbitron;border:1px solid var(--line);padding:1px 5px;fon
     <div class="hdr-right">
       <span class="pill" id="pillProvider">—</span>
       <span class="pill" id="pillWake" title="Mode écoute permanente">ÉCOUTE : OFF</span>
+      <button class="btn mob" id="btnPanel" style="display:none">⏰ <span id="panelCount">0</span></button>
       <button class="btn" id="btnWake">Écoute</button>
       <button class="btn gold" id="btnSettings">Réglages</button>
     </div>
@@ -175,6 +197,7 @@ footer kbd{font-family:Orbitron;border:1px solid var(--line);padding:1px 5px;fon
     </div>
     <div class="transcript" id="transcript"></div>
     <div class="chat"><div class="msgs scroll" id="msgs"></div></div>
+    <div class="quick-m" id="quickM" style="display:none"></div>
     <form class="inputbar" id="form" autocomplete="off">
       <button type="button" class="mic" id="mic" title="Parler (Espace)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg>
@@ -184,7 +207,8 @@ footer kbd{font-family:Orbitron;border:1px solid var(--line);padding:1px 5px;fon
     </form>
   </main>
 
-  <aside class="side right">
+  <aside class="side right" id="rightPanel">
+    <button class="btn drawer-close" id="btnClosePanel" style="display:none;align-self:flex-end">Fermer ✕</button>
     <div class="panel">
       <h3>Alarmes & minuteurs <span id="alarmCount"></span></h3>
       <div id="alarms"></div>
@@ -255,6 +279,7 @@ footer kbd{font-family:Orbitron;border:1px solid var(--line);padding:1px 5px;fon
 (() => {
 'use strict';
 const $ = (id) => document.getElementById(id);
+const isMobile = matchMedia('(pointer:coarse)').matches || /Android|iPhone|iPad/i.test(navigator.userAgent);
 const LS = {
   get(k, d) { try { const v = localStorage.getItem('jarvis_' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem('jarvis_' + k, JSON.stringify(v)); } catch {} }
@@ -391,7 +416,14 @@ requestAnimationFrame(draw);
 
 /* ================= AUDIO (beeps + mic level) ================= */
 let actx;
-function audio() { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); return actx; }
+let ttsUnlocked = false;
+function audio() {
+  if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+  if (actx.state === 'suspended') actx.resume();
+  // iPhone/Safari : la voix doit être « débloquée » par un premier geste de l'utilisateur
+  if (!ttsUnlocked && window.speechSynthesis) { ttsUnlocked = true; try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch {} }
+  return actx;
+}
 function beep(freq = 880, dur = .12, vol = .08) {
   try {
     const a = audio(), o = a.createOscillator(), g = a.createGain();
@@ -473,7 +505,8 @@ function makeRec() {
 }
 function startRec() {
   if (!SR || recActive) return;
-  try { rec = rec || makeRec(); rec.start(); recActive = true; } catch {}
+  // Sur mobile, en mode « toucher pour parler », la reco s'arrête toute seule quand tu te tais → envoi automatique
+  try { rec = rec || makeRec(); rec.continuous = !(isMobile && pttMode); rec.start(); recActive = true; } catch {}
 }
 function stopRec() { if (rec && recActive) try { rec.stop(); } catch {} }
 function pauseRecognition() { recPaused = true; if (wakeMode) stopRec(); }
@@ -497,6 +530,7 @@ function startPTT() {
   if (synth) synth.cancel();
   audio(); startMeter();
   pttMode = true; finalText = '';
+  try { navigator.vibrate && navigator.vibrate(30); } catch {}
   if (wakeMode) stopRec();
   $('mic').classList.add('live'); setState('ÉCOUTE'); beep(660, .08);
   setTimeout(() => { if (!pttMode) return; recActive = false; pttRec = true; startRec(); }, wakeMode ? 350 : 0);
@@ -536,6 +570,7 @@ addEventListener('keyup', (e) => { if (e.code === 'Space' && spaceDown) { spaceD
 function saveAlarms() { LS.set('alarms', alarms); renderAlarms(); }
 function renderAlarms() {
   const box = $('alarms'); box.innerHTML = '';
+  $('panelCount').textContent = alarms.length;
   if (!alarms.length) { box.innerHTML = '<p class="empty">Aucune alarme.</p>'; $('alarmCount').textContent = ''; return; }
   $('alarmCount').textContent = alarms.length;
   alarms.sort((a, b) => a.at - b.at).forEach((a) => {
@@ -784,7 +819,11 @@ const QUICK = [
   'Crée une image d\'une armure high-tech rouge et or', 'Écris un mail à mon patron pour dire que je serai en retard',
   'Ouvre mes mails', 'Mets de la musique pour bosser', 'Cherche les dernières actus tech', 'Raconte-moi une blague'
 ];
-QUICK.forEach((q) => { const b = document.createElement('button'); b.textContent = q; b.onclick = () => { audio(); send(q); }; $('quick').appendChild(b); });
+QUICK.forEach((q) => {
+  for (const box of ['quick', 'quickM']) { const b = document.createElement('button'); b.type = 'button'; b.textContent = q; b.onclick = () => { audio(); send(q); }; $(box).appendChild(b); }
+});
+$('btnPanel').onclick = () => $('rightPanel').classList.toggle('open');
+$('btnClosePanel').onclick = () => $('rightPanel').classList.remove('open');
 
 /* ================= SETTINGS ================= */
 function refreshKeyField() {
@@ -820,7 +859,8 @@ updateProviderPill();
 setInterval(tick, 1000); tick();
 const h = new Date().getHours();
 const greet = h < 6 ? 'Encore debout' : h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir';
-addMsg('bot', `${greet}, ${title()}. Tous les systèmes sont opérationnels. Cliquez sur le réacteur ou maintenez Espace pour me parler.`);
+addMsg('bot', `${greet}, ${title()}. Tous les systèmes sont opérationnels. ${isMobile ? 'Touchez le micro ou le réacteur, parlez, et je m\'occupe du reste.' : 'Cliquez sur le réacteur ou maintenez Espace pour me parler.'}`);
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 if (!LS.get('seen', false)) { LS.set('seen', true); setTimeout(openSettings, 600); }
 })();
 </script>

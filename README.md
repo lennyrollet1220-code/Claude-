@@ -81,3 +81,14 @@ Assistant vocal façon Iron Man, gratuit, dans le navigateur : interface hologra
 - **Parler :** clique sur le réacteur, ou maintiens **Espace**. Bouton **Écoute** : mode mains libres, dis « Jarvis, … ».
 - **Cerveau IA (Réglages) :** Pollinations marche sans clé. Pour plus d'intelligence, colle une clé **gratuite** Google Gemini (aistudio.google.com/apikey) ou Groq (console.groq.com/keys).
 - Les clés et l'historique restent dans ton navigateur (localStorage).
+
+### 📱 JARVIS sur téléphone
+
+1. Ouvre le lien `…/jarvis/` : **Chrome** sur Android, **Safari** sur iPhone.
+2. Installe-le comme une appli :
+   - **Android** : menu ⋮ → **Ajouter à l'écran d'accueil** / **Installer l'application**.
+   - **iPhone** : bouton Partager ⬆ → **Sur l'écran d'accueil**.
+3. Touche le **gros bouton micro** (ou le réacteur), parle : quand tu te tais, Jarvis envoie tout seul et répond à voix haute.
+4. Autorise le **micro** et les **notifications** quand il les demande.
+
+Bon à savoir : l'écran **⏰** en haut affiche alarmes et images. Les alarmes sonnent tant que Jarvis reste ouvert : pour un réveil fiable téléphone verrouillé, dis plutôt « crée l'alarme » et règle aussi celle de ton téléphone. Le mode **Écoute** (« Jarvis, … » mains libres) marche mieux sur ordinateur.
