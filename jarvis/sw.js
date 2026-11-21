@@ -1,5 +1,5 @@
 // Service worker JARVIS : réseau d'abord, cache en secours (permet l'installation sur l'écran d'accueil)
-const CACHE = 'jarvis-v1';
+const CACHE = 'jarvis-v2';
 self.addEventListener('install', (e) => { self.skipWaiting(); e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png']))); });
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener('fetch', (e) => {

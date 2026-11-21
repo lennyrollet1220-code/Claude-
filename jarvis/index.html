@@ -234,6 +234,11 @@ footer kbd{font-family:Orbitron;border:1px solid var(--line);padding:1px 5px;fon
       <p>Vide = Jarvis t'appelle « monsieur ».</p>
     </div>
     <div class="field">
+      <label>⚡ Clé Groq (cerveau + micro + voix)</label>
+      <div style="display:flex;gap:8px"><input id="cfgGroq" type="password" placeholder="gsk_…" style="flex:1"><button class="btn" type="button" id="btnPaste">Coller</button></div>
+      <p>Gratuite sur <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a>. Elle reste sur cet appareil. Sur iPhone, l'appli installée sur l'écran d'accueil a sa propre mémoire : colle-la ici aussi.</p>
+    </div>
+    <div class="field">
       <label>Cerveau (IA)</label>
       <select id="cfgProvider">
         <option value="gemini">Google Gemini — gratuit, le plus intelligent (clé gratuite)</option>
@@ -251,7 +256,22 @@ footer kbd{font-family:Orbitron;border:1px solid var(--line);padding:1px 5px;fon
       <input id="cfgModel" placeholder="">
     </div>
     <div class="field">
-      <label>Voix de Jarvis</label>
+      <label>Moteur de voix</label>
+      <select id="cfgTts">
+        <option value="groq">Voix IA Groq (Orpheus, voix réaliste, accent anglais)</option>
+        <option value="browser">Voix du téléphone / navigateur (français)</option>
+      </select>
+      <p id="ttsHelp">La voix Groq demande d'accepter une fois ses conditions (gratuit) : <a href="https://console.groq.com/playground?model=canopylabs%2Forpheus-v1-english" target="_blank" rel="noopener">ouvrir la page Groq</a>, puis « Accept ».</p>
+    </div>
+    <div class="field" id="fGroqVoice">
+      <label>Voix Groq</label>
+      <select id="cfgGroqVoice">
+        <option value="daniel">Daniel (homme, posé)</option><option value="austin">Austin (homme)</option><option value="troy">Troy (homme, grave)</option>
+        <option value="diana">Diana (femme)</option><option value="hannah">Hannah (femme)</option><option value="autumn">Autumn (femme)</option>
+      </select>
+    </div>
+    <div class="field" id="fBrowserVoice">
+      <label>Voix du navigateur</label>
       <select id="cfgVoice"></select>
     </div>
     <div class="field">
@@ -294,7 +314,8 @@ const PROVIDERS = {
   pollinations: { label: 'POLLINATIONS', model: 'openai', needsKey: false,
     help: 'Aucune clé nécessaire. Service communautaire gratuit : parfois lent ou saturé.' }
 };
-let cfg = Object.assign({ name: '', provider: 'pollinations', keys: {}, models: {}, voice: '', rate: 1.05, speak: true }, LS.get('cfg', {}));
+let cfg = Object.assign({ name: '', provider: 'pollinations', keys: {}, models: {}, voice: '', rate: 1.05, speak: true, tts: 'groq', groqVoice: 'daniel' }, LS.get('cfg', {}));
+const groqKey = () => (cfg.keys.groq || '').trim();
 let history = LS.get('history', []);
 let alarms = LS.get('alarms', []);
 let images = LS.get('images', []);
@@ -351,7 +372,7 @@ function countReq() {
 
 /* ================= ARC REACTOR CANVAS ================= */
 const cv = $('core'), cx = cv.getContext('2d');
-let coreMode = 'EN LIGNE', level = 0, targetLevel = 0, t0 = performance.now();
+let speakLevel = 0, coreMode = 'EN LIGNE', level = 0, targetLevel = 0, t0 = performance.now();
 function resize() { const r = cv.getBoundingClientRect(); const dpr = Math.min(devicePixelRatio || 1, 2); cv.width = r.width * dpr; cv.height = r.height * dpr; }
 addEventListener('resize', resize); resize();
 const particles = Array.from({ length: 90 }, () => ({ a: Math.random() * Math.PI * 2, r: .55 + Math.random() * .4, s: (Math.random() - .5) * .006, z: Math.random() }));
@@ -360,7 +381,7 @@ function draw(now) {
   cx.clearRect(0, 0, W, H);
   cx.save(); cx.translate(W / 2, H / 2);
   const speaking = coreMode === 'PARLE', listening = coreMode === 'ÉCOUTE', thinking = coreMode === 'ANALYSE';
-  if (speaking) targetLevel = .35 + Math.abs(Math.sin(t * 9)) * .4 * Math.random() + .15;
+  if (speaking) targetLevel = ttsSource ? .15 + speakLevel * .9 : .35 + Math.abs(Math.sin(t * 9)) * .4 * Math.random() + .15;
   else if (!listening) targetLevel = thinking ? .25 + Math.sin(t * 4) * .1 : .08 + Math.sin(t * 1.5) * .04;
   level += (targetLevel - level) * .18;
   const col = listening ? '255,181,71' : '63,224,255';
@@ -432,19 +453,20 @@ function beep(freq = 880, dur = .12, vol = .08) {
     o.connect(g).connect(a.destination); o.start(); o.stop(a.currentTime + dur);
   } catch {}
 }
-let micAnalyser, micData;
-async function startMeter() {
-  if (micAnalyser) return;
-  try {
-    const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const a = audio(); micAnalyser = a.createAnalyser(); micAnalyser.fftSize = 256;
-    a.createMediaStreamSource(s).connect(micAnalyser); micData = new Uint8Array(micAnalyser.frequencyBinCount);
-    (function loop() {
-      if (coreMode === 'ÉCOUTE') { micAnalyser.getByteFrequencyData(micData); let sum = 0; for (const v of micData) sum += v; targetLevel = Math.min(1, sum / micData.length / 60); }
-      requestAnimationFrame(loop);
-    })();
-  } catch {}
+let micAnalyser, micData, micStream;
+async function getMic() {
+  if (micStream && micStream.getAudioTracks().some((t) => t.readyState === 'live')) return micStream;
+  micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  const a = audio(); micAnalyser = a.createAnalyser(); micAnalyser.fftSize = 1024;
+  a.createMediaStreamSource(micStream).connect(micAnalyser); micData = new Uint8Array(micAnalyser.frequencyBinCount);
+  return micStream;
 }
+(function meterLoop() {
+  if (micAnalyser && coreMode === 'ÉCOUTE') { micAnalyser.getByteFrequencyData(micData); let sum = 0; for (const v of micData) sum += v; targetLevel = Math.min(1, sum / micData.length / 40); }
+  requestAnimationFrame(meterLoop);
+})();
+// L'indicateur du réacteur avec la reco du navigateur : seulement sur ordinateur (sur mobile, ça bloque le micro)
+async function startMeter() { if (isMobile || micStream) return; try { await getMic(); } catch {} }
 
 /* ================= TEXT-TO-SPEECH ================= */
 const synth = window.speechSynthesis;
@@ -463,26 +485,88 @@ function loadVoices() {
   $('sTts').textContent = voices.length ? 'OK' : 'N/D';
 }
 if (synth) { loadVoices(); synth.onvoiceschanged = loadVoices; }
-function speak(text) {
+const cleanForSpeech = (t) => t.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}*_#`]/gu, '').replace(/https?:\/\/\S+/g, 'le lien').trim();
+let ttsSource = null, ttsToken = 0, groqTtsWarned = false;
+function stopSpeaking() { ttsToken++; try { ttsSource && ttsSource.stop(); } catch {} ttsSource = null; synth && synth.cancel(); }
+function chunkText(t, max = 180) {
+  const parts = t.match(/[^.!?;:]+[.!?;:]*\s*/g) || [t], out = [];
+  let cur = '';
+  for (let p of parts) {
+    while (p.length > max) { const i = p.lastIndexOf(' ', max) > 40 ? p.lastIndexOf(' ', max) : max; out.push((cur + p.slice(0, i)).trim()); cur = ''; p = p.slice(i); }
+    if ((cur + p).length > max) { if (cur.trim()) out.push(cur.trim()); cur = p; } else cur += p;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+async function groqTTS(chunk) {
+  const r = await fetch('https://api.groq.com/openai/v1/audio/speech', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + groqKey() },
+    body: JSON.stringify({ model: 'canopylabs/orpheus-v1-english', voice: cfg.groqVoice || 'daniel', input: chunk, response_format: 'wav' })
+  });
+  if (!r.ok) { let m = 'Erreur voix ' + r.status; try { const j = await r.json(); m = j.error?.message || m; if (j.error?.code === 'model_terms_required') m = 'TERMS'; } catch {} throw new Error(m); }
+  return audio().decodeAudioData(await r.arrayBuffer());
+}
+async function speakGroq(text) {
+  const my = ++ttsToken, a = audio();
+  const chunks = chunkText(text);
+  let next = groqTTS(chunks[0]);
+  for (let i = 0; i < chunks.length; i++) {
+    const buf = await next;
+    if (my !== ttsToken) return;
+    if (i + 1 < chunks.length) next = groqTTS(chunks[i + 1]);
+    await new Promise((res) => {
+      const src = a.createBufferSource(), an = a.createAnalyser(); an.fftSize = 256;
+      src.buffer = buf; src.connect(an); an.connect(a.destination); ttsSource = src;
+      const d = new Uint8Array(an.frequencyBinCount);
+      setState('PARLE');
+      (function lvl() { if (ttsSource !== src) return; an.getByteFrequencyData(d); let s = 0; for (const v of d) s += v; speakLevel = Math.min(1, s / d.length / 50); requestAnimationFrame(lvl); })();
+      src.onended = () => { if (ttsSource === src) ttsSource = null; res(); };
+      src.start();
+    });
+    if (my !== ttsToken) return;
+  }
+}
+async function speak(text) {
+  if (!cfg.speak || !text) return;
+  const clean = cleanForSpeech(text);
+  if (!clean) return;
+  stopSpeaking();
+  pauseRecognition();
+  try {
+    if (cfg.tts === 'groq' && groqKey()) {
+      try { await speakGroq(clean); return; }
+      catch (e) {
+        if (!groqTtsWarned) {
+          groqTtsWarned = true;
+          const b = addMsg('bot', e.message === 'TERMS' ? 'La voix Groq n\'est pas encore activée : acceptez ses conditions (gratuit, une seule fois), je prends la voix du téléphone en attendant.' : 'Voix Groq indisponible (' + e.message + '), je prends la voix du téléphone.');
+          if (e.message === 'TERMS') b.appendChild(card('Activer la voix Groq : ouvrez la page, puis cliquez sur « Accept ».', 'https://console.groq.com/playground?model=canopylabs%2Forpheus-v1-english', 'ACTIVER'));
+        }
+      }
+    }
+    await speakBrowser(clean);
+  } finally {
+    setState(wakeMode ? 'EN VEILLE' : 'EN LIGNE');
+    resumeRecognition();
+  }
+}
+function speakBrowser(text) {
   return new Promise((res) => {
     if (!synth || !cfg.speak || !text) return res();
     synth.cancel();
-    const clean = text.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}*_#`]/gu, '').replace(/https?:\/\/\S+/g, 'le lien');
-    const u = new SpeechSynthesisUtterance(clean);
+    const u = new SpeechSynthesisUtterance(text);
     const v = voices.find((x) => x.name === cfg.voice); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'fr-FR';
     u.rate = cfg.rate; u.pitch = .9;
     u.onstart = () => setState('PARLE');
-    const end = () => { setState(wakeMode ? 'EN VEILLE' : 'EN LIGNE'); res(); };
-    u.onend = end; u.onerror = end;
-    pauseRecognition();
+    u.onend = res; u.onerror = res;
     synth.speak(u);
-  }).then(() => resumeRecognition());
+  });
 }
 
 /* ================= SPEECH RECOGNITION ================= */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let rec = null, recActive = false, wakeMode = false, pttMode = false, pttRec = false, recPaused = false, finalText = '';
-$('sStt').textContent = SR ? 'OK' : 'N/D (utilise Chrome/Edge)';
+const sttLabel = () => { $('sStt').textContent = groqKey() ? 'WHISPER (GROQ)' : SR ? 'NAVIGATEUR' : 'N/D'; };
+sttLabel();
 function makeRec() {
   const r = new SR();
   r.lang = 'fr-FR'; r.interimResults = true; r.continuous = true; r.maxAlternatives = 1;
@@ -524,10 +608,77 @@ function handleFinal(tx) {
     else { wakeArmedUntil = Date.now() + 8000; beep(1046, .1); speak('Oui, ' + title() + ' ?'); }
   } else if (Date.now() < wakeArmedUntil) { wakeArmedUntil = 0; send(tx); }
 }
+/* ---- Micro via Groq Whisper (marche sur iPhone, Android et PC, même appli installée) ---- */
+const useWhisper = () => !!groqKey() && !!navigator.mediaDevices && !!window.MediaRecorder;
+let wRec = null, wState = null;
+function pickMime() {
+  for (const m of ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus', 'audio/aac']) if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) return m;
+  return '';
+}
+async function startWhisper() {
+  if (wRec) return;
+  stopSpeaking();
+  audio();
+  if (wakeMode) stopRec();
+  let stream;
+  try { stream = await getMic(); }
+  catch (e) { foot('Micro refusé : autorise-le dans les réglages du téléphone / navigateur.'); addMsg('bot', 'Je n\'ai pas accès au micro, ' + title() + '. Autorisez-le dans les réglages du navigateur, puis réessayez.'); return; }
+  const mime = pickMime();
+  const chunks = [];
+  try { wRec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream); }
+  catch { wRec = new MediaRecorder(stream); }
+  const type = (wRec.mimeType || mime || 'audio/webm').split(';')[0];
+  wState = { spoke: false, start: performance.now(), lastVoice: performance.now(), cancelled: false };
+  wRec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+  wRec.onstop = async () => {
+    const st = wState; wRec = null; wState = null;
+    $('mic').classList.remove('live'); beep(440, .08);
+    if (st.cancelled || !st.spoke || !chunks.length) { setState(wakeMode ? 'EN VEILLE' : 'EN LIGNE'); if (!st.spoke) foot('Je n\'ai rien entendu.'); if (wakeMode) setTimeout(startRec, 300); return; }
+    setState('ANALYSE'); foot('Transcription…');
+    try {
+      const ext = type.includes('mp4') || type.includes('aac') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm';
+      const fd = new FormData();
+      fd.append('file', new Blob(chunks, { type }), 'voix.' + ext);
+      fd.append('model', 'whisper-large-v3-turbo'); fd.append('language', 'fr'); fd.append('temperature', '0'); fd.append('response_format', 'json');
+      const r = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: 'Bearer ' + groqKey() }, body: fd });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error?.message || 'Erreur ' + r.status);
+      const text = (j.text || '').trim();
+      setState(wakeMode ? 'EN VEILLE' : 'EN LIGNE');
+      if (!text || /amara\.org|sous-titr|merci d'avoir regardé/i.test(text)) { foot('Je n\'ai pas compris, réessayez.'); }
+      else send(text);
+    } catch (e) {
+      setState('EN LIGNE'); addMsg('bot', 'La transcription a échoué : ' + (e.message || e));
+    }
+    if (wakeMode) setTimeout(startRec, 300);
+  };
+  wRec.start(250);
+  $('mic').classList.add('live'); setState('ÉCOUTE'); beep(660, .08);
+  try { navigator.vibrate && navigator.vibrate(30); } catch {}
+  foot('Je vous écoute…');
+  // Détection de silence : on coupe tout seul quand vous avez fini de parler
+  const buf = new Float32Array(micAnalyser.fftSize);
+  let floor = 0.01;
+  (function watch() {
+    if (!wRec || !wState) return;
+    micAnalyser.getFloatTimeDomainData(buf);
+    let sum = 0; for (const v of buf) sum += v * v;
+    const rms = Math.sqrt(sum / buf.length), now = performance.now(), el = now - wState.start;
+    if (el < 300) floor = Math.max(floor, rms);
+    if (rms > Math.max(0.02, floor * 2.2)) { wState.spoke = true; wState.lastVoice = now; }
+    if ((wState.spoke && now - wState.lastVoice > 1400) || el > 30000 || (!wState.spoke && el > 8000)) { stopWhisper(); return; }
+    requestAnimationFrame(watch);
+  })();
+}
+function stopWhisper() { if (wRec && wRec.state !== 'inactive') { try { wRec.requestData(); } catch {} wRec.stop(); } }
+// Sur PC, si on maintient Espace, on considère qu'on a parlé même si le niveau est faible
+function stopWhisperManual() { if (wState) wState.spoke = wState.spoke || performance.now() - wState.start > 700; stopWhisper(); }
+
 function startPTT() {
-  if (!SR) { foot('Reconnaissance vocale indisponible : utilise Chrome ou Edge.'); return; }
+  if (useWhisper()) { startWhisper(); return; }
+  if (!SR) { foot('Micro : ajoute ta clé Groq dans Réglages (ou utilise Chrome / Edge).'); openSettings(); return; }
   if (pttMode) return;
-  if (synth) synth.cancel();
+  stopSpeaking();
   audio(); startMeter();
   pttMode = true; finalText = '';
   try { navigator.vibrate && navigator.vibrate(30); } catch {}
@@ -535,7 +686,7 @@ function startPTT() {
   $('mic').classList.add('live'); setState('ÉCOUTE'); beep(660, .08);
   setTimeout(() => { if (!pttMode) return; recActive = false; pttRec = true; startRec(); }, wakeMode ? 350 : 0);
 }
-function stopPTT() { if (!pttMode) return; if (pttRec) stopRec(); else finishPTT(); }
+function stopPTT() { if (wRec) { stopWhisperManual(); return; } if (!pttMode) return; if (pttRec) stopRec(); else finishPTT(); }
 function finishPTT() {
   pttMode = false; $('mic').classList.remove('live'); beep(440, .08);
   const text = finalText.trim() || $('transcript').textContent.trim();
@@ -557,12 +708,13 @@ $('btnWake').onclick = () => {
   else stopRec();
 };
 // Click mic = toggle; hold space = push-to-talk
-$('mic').onclick = () => (pttMode ? stopPTT() : startPTT());
-$('coreWrap').onclick = () => (pttMode ? stopPTT() : startPTT());
+const toggleTalk = () => (pttMode || wRec ? stopPTT() : startPTT());
+$('mic').onclick = toggleTalk;
+$('coreWrap').onclick = toggleTalk;
 let spaceDown = false;
 addEventListener('keydown', (e) => {
   if (e.code === 'Space' && document.activeElement.tagName !== 'INPUT' && !e.repeat && !$('settings').classList.contains('open')) { e.preventDefault(); spaceDown = true; startPTT(); }
-  if (e.key === 'Escape') { synth && synth.cancel(); }
+  if (e.key === 'Escape') stopSpeaking();
 });
 addEventListener('keyup', (e) => { if (e.code === 'Space' && spaceDown) { spaceDown = false; stopPTT(); } });
 
@@ -616,7 +768,7 @@ function checkAlarms(now) {
   try { if ('Notification' in window && Notification.permission === 'granted') new Notification('JARVIS', { body: $('alarmLabel').textContent }); } catch {}
   speak(`${title()}, ${due.kind === 'timer' ? 'votre minuteur est terminé' : 'il est l\'heure'}${due.label ? ' : ' + due.label : ''}.`);
 }
-$('btnStopAlarm').onclick = () => { clearInterval(ringInt); ringing = null; $('alarmOverlay').classList.remove('open'); synth && synth.cancel(); };
+$('btnStopAlarm').onclick = () => { clearInterval(ringInt); ringing = null; $('alarmOverlay').classList.remove('open'); stopSpeaking(); };
 renderAlarms();
 
 /* ================= IMAGES ================= */
@@ -837,10 +989,18 @@ function refreshKeyField() {
 function openSettings() {
   $('cfgName').value = cfg.name; $('cfgProvider').value = cfg.provider;
   $('cfgRate').value = cfg.rate; $('rateVal').textContent = cfg.rate; $('cfgSpeak').value = cfg.speak ? '1' : '0';
+  $('cfgGroq').value = groqKey(); $('cfgTts').value = cfg.tts; $('cfgGroqVoice').value = cfg.groqVoice; refreshTts();
   refreshKeyField(); $('settings').classList.add('open');
 }
 $('cfgProvider').onchange = refreshKeyField;
-$('cfgKey').oninput = () => { cfg.keys[$('cfgProvider').value] = $('cfgKey').value.trim(); };
+function refreshTts() { const g = $('cfgTts').value === 'groq'; $('fGroqVoice').style.display = g ? '' : 'none'; $('ttsHelp').style.display = g ? '' : 'none'; }
+$('cfgTts').onchange = refreshTts;
+$('cfgGroq').oninput = () => { cfg.keys.groq = $('cfgGroq').value.trim(); if ($('cfgProvider').value === 'groq') $('cfgKey').value = cfg.keys.groq; };
+$('btnPaste').onclick = async () => {
+  try { const t = (await navigator.clipboard.readText()).trim(); if (t) { $('cfgGroq').value = t; $('cfgGroq').oninput(); if (cfg.provider === 'pollinations') $('cfgProvider').value = 'groq'; refreshKeyField(); } }
+  catch { $('cfgGroq').focus(); foot('Appuie longuement dans le champ puis « Coller ».'); }
+};
+$('cfgKey').oninput = () => { const p = $('cfgProvider').value; cfg.keys[p] = $('cfgKey').value.trim(); if (p === 'groq') $('cfgGroq').value = cfg.keys.groq; };
 $('cfgModel').oninput = () => { cfg.models[$('cfgProvider').value] = $('cfgModel').value.trim(); };
 $('cfgRate').oninput = () => { $('rateVal').textContent = $('cfgRate').value; };
 $('btnSettings').onclick = openSettings;
@@ -848,6 +1008,9 @@ $('settings').onclick = (e) => { if (e.target.id === 'settings') $('settings').c
 $('btnSave').onclick = () => {
   cfg.name = $('cfgName').value.trim(); cfg.provider = $('cfgProvider').value;
   cfg.voice = $('cfgVoice').value; cfg.rate = +$('cfgRate').value; cfg.speak = $('cfgSpeak').value === '1';
+  cfg.keys.groq = $('cfgGroq').value.trim(); cfg.tts = $('cfgTts').value; cfg.groqVoice = $('cfgGroqVoice').value;
+  if (cfg.keys.groq && cfg.provider === 'pollinations') cfg.provider = 'groq';
+  groqTtsWarned = false; sttLabel();
   LS.set('cfg', cfg); $('settings').classList.remove('open'); updateProviderPill();
   speak('Réglages enregistrés, ' + title() + '.');
 };
@@ -861,7 +1024,7 @@ updateProviderPill();
   const hp = new URLSearchParams(location.hash.slice(1));
   let got = false;
   for (const p of ['groq', 'gemini']) { const k = (hp.get(p) || '').trim(); if (k) { cfg.keys[p] = k; cfg.provider = p; got = true; } }
-  if (got) { LS.set('cfg', cfg); LS.set('seen', true); window.history.replaceState(null, '', location.pathname + location.search); updateProviderPill(); setTimeout(() => foot('Clé enregistrée sur cet appareil.'), 50); }
+  if (got) { LS.set('cfg', cfg); LS.set('seen', true); window.history.replaceState(null, '', location.pathname + location.search); updateProviderPill(); sttLabel(); setTimeout(() => foot('Clé enregistrée sur cet appareil.'), 50); }
 }
 setInterval(tick, 1000); tick();
 const h = new Date().getHours();
