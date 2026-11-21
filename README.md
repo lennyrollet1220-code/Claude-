@@ -91,4 +91,4 @@ Assistant vocal façon Iron Man, gratuit, dans le navigateur : interface hologra
 3. Touche le **gros bouton micro** (ou le réacteur), parle : quand tu te tais, Jarvis envoie tout seul et répond à voix haute.
 4. Autorise le **micro** et les **notifications** quand il les demande.
 
-Bon à savoir : l'écran **⏰** en haut affiche alarmes et images. Les alarmes sonnent tant que Jarvis reste ouvert : pour un réveil fiable téléphone verrouillé, dis plutôt « crée l'alarme » et règle aussi celle de ton téléphone. Le mode **Écoute** (« Jarvis, … » mains libres) marche mieux sur ordinateur.
+Bon à savoir : l'écran **⏰** en haut affiche alarmes et images. Les alarmes sonnent tant que Jarvis reste ouvert : pour un réveil fiable quand le téléphone est verrouillé, garde aussi l'alarme de ton téléphone. Le mode **Écoute** (« Jarvis, … » mains libres) marche mieux sur ordinateur.
