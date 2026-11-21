@@ -237,7 +237,7 @@ footer kbd{font-family:Orbitron;border:1px solid var(--line);padding:1px 5px;fon
       <label>Cerveau (IA)</label>
       <select id="cfgProvider">
         <option value="gemini">Google Gemini — gratuit, le plus intelligent (clé gratuite)</option>
-        <option value="groq">Groq (Llama) — gratuit, ultra rapide (clé gratuite)</option>
+        <option value="groq">Groq — gratuit, ultra rapide (clé gratuite)</option>
         <option value="pollinations">Pollinations — gratuit, sans clé (moins fiable)</option>
       </select>
     </div>
@@ -289,7 +289,7 @@ const LS = {
 const PROVIDERS = {
   gemini: { label: 'GEMINI', model: 'gemini-2.5-flash', needsKey: true,
     help: 'Gratuit : va sur <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>, connecte-toi avec ton compte Google, « Create API key », copie-la ici. Quota gratuit de plusieurs centaines de requêtes par jour.' },
-  groq: { label: 'GROQ', model: 'llama-3.3-70b-versatile', needsKey: true,
+  groq: { label: 'GROQ', model: 'openai/gpt-oss-120b', needsKey: true,
     help: 'Gratuit : crée un compte sur <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a>, « Create API Key », copie-la ici. Très rapide, quota gratuit quotidien.' },
   pollinations: { label: 'POLLINATIONS', model: 'openai', needsKey: false,
     help: 'Aucune clé nécessaire. Service communautaire gratuit : parfois lent ou saturé.' }
@@ -856,6 +856,13 @@ function updateProviderPill() { $('pillProvider').textContent = 'CERVEAU : ' + P
 updateProviderPill();
 
 /* ================= BOOT ================= */
+// Lien perso : …/jarvis/#groq=CLÉ ou #gemini=CLÉ → la clé est enregistrée sur CET appareil seulement, puis retirée de l'adresse
+{
+  const hp = new URLSearchParams(location.hash.slice(1));
+  let got = false;
+  for (const p of ['groq', 'gemini']) { const k = (hp.get(p) || '').trim(); if (k) { cfg.keys[p] = k; cfg.provider = p; got = true; } }
+  if (got) { LS.set('cfg', cfg); LS.set('seen', true); window.history.replaceState(null, '', location.pathname + location.search); updateProviderPill(); setTimeout(() => foot('Clé enregistrée sur cet appareil.'), 50); }
+}
 setInterval(tick, 1000); tick();
 const h = new Date().getHours();
 const greet = h < 6 ? 'Encore debout' : h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir';
